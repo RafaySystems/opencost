@@ -300,4 +300,6 @@ type ProviderConfig interface {
 	GetCustomPricingData() (*CustomPricing, error)
 	Update(func(*CustomPricing) error) (*CustomPricing, error)
 	UpdateFromMap(map[string]string) (*CustomPricing, error)
+	SetDownloadPricing(flag bool)
+	GetDownloadPricing() bool
 }

@@ -782,6 +782,7 @@ func (az *Azure) GetManagementPlatform() (string, error) {
 
 // DownloadPricingData uses provided azure "best guesses" for pricing
 func (az *Azure) DownloadPricingData() error {
+	defer az.Config.SetDownloadPricing(false)
 	az.DownloadPricingDataLock.Lock()
 	defer az.DownloadPricingDataLock.Unlock()
 
@@ -801,7 +802,7 @@ func (az *Azure) DownloadPricingData() error {
 	}
 
 	// Load the service provider keys
-	subscriptionID, clientID, clientSecret, tenantID := az.getAzureRateCardAuth(false, config)
+	subscriptionID, clientID, clientSecret, tenantID := az.getAzureRateCardAuth(true, config)
 	config.AzureSubscriptionID = subscriptionID
 	config.AzureClientID = clientID
 	config.AzureClientSecret = clientSecret
@@ -1088,6 +1089,14 @@ func (az *Azure) NodePricing(key models.Key) (*models.Node, error) {
 		log.DedupedWarningf(1, "Unable to download Azure pricing data")
 	}
 
+	if az.Config.GetDownloadPricing() {
+		az.DownloadPricingDataLock.RUnlock()
+		err := az.DownloadPricingData()
+		az.DownloadPricingDataLock.RLock()
+		if err != nil {
+			log.Errorf("Error refreshing pricing data: %s", err.Error())
+		}
+	}
 	azKey, ok := key.(*azureKey)
 	if !ok {
 		return nil, fmt.Errorf("azure: NodePricing: key is of type %T", key)
