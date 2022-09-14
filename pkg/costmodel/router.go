@@ -18,6 +18,7 @@ import (
 	"github.com/microcosm-cc/bluemonday"
 	"github.com/opencost/opencost/core/pkg/opencost"
 	"github.com/opencost/opencost/core/pkg/util/httputil"
+	"github.com/opencost/opencost/core/pkg/util/retry"
 	"github.com/opencost/opencost/core/pkg/util/timeutil"
 	"github.com/opencost/opencost/core/pkg/util/watcher"
 	"github.com/opencost/opencost/core/pkg/version"
@@ -73,6 +74,8 @@ const (
 	DiscountSetting      = "Discount"
 	epRules              = apiPrefix + "/rules"
 	LogSeparator         = "+-------------------------------------------------------------------------------------"
+	DownloadRetries      = 6
+	DownloadRetryDelay   = 10 * time.Second
 )
 
 var (
@@ -1751,9 +1754,18 @@ func Initialize(additionalConfigWatchers ...*watcher.ConfigMapWatcher) *Accesses
 
 	// Initialize mechanism for subscribing to settings changes
 	a.InitializeSettingsPubSub()
-	err = a.CloudProvider.DownloadPricingData()
+
+	downloadData := func() (interface{}, error) {
+		err = a.CloudProvider.DownloadPricingData()
+		if err != nil {
+			log.Infof("Failed to download pricing data: " + err.Error())
+		}
+		return nil, err
+	}
+	_, err = retry.Retry(context.Background(), downloadData, uint(DownloadRetries), DownloadRetryDelay)
 	if err != nil {
-		log.Infof("Failed to download pricing data: " + err.Error())
+		log.Infof("Opencost unable to fetch pricing: " + err.Error())
+		panic(err.Error())
 	}
 
 	// Warm the aggregate cache unless explicitly set to false
