@@ -133,7 +133,7 @@ func (pc *ProviderConfig) loadConfig(writeIfNotExists bool) (*CustomPricing, err
 	if pc.customPricing.ShareTenancyCosts == "" {
 		pc.customPricing.ShareTenancyCosts = defaultShareTenancyCost
 	}
-
+	log.Errorf("Custom Pricing found %s -- %s", pc.configFile.Path(), string(byteValue[:]))
 	return pc.customPricing, nil
 }
 
