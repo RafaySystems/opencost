@@ -488,7 +488,7 @@ func (aws *AWS) GetAWSAccessKey() (*AWSAccessKey, error) {
 	if err != nil {
 		return nil, fmt.Errorf("could not retrieve AwsAthenaInfo %s", err)
 	}
-	err = aws.ConfigureAuthWith(config)
+	err = aws.ConfigureAuthWith(config, false)
 	if err != nil {
 		return nil, fmt.Errorf("error configuring Cloud Provider %s", err)
 	}
@@ -846,6 +846,7 @@ func (aws *AWS) SpotRefreshEnabled() bool {
 
 // DownloadPricingData fetches data from the AWS Pricing API
 func (aws *AWS) DownloadPricingData() error {
+	defer aws.Config.SetDownloadPricing(false)
 	aws.DownloadPricingDataLock.Lock()
 	defer aws.DownloadPricingDataLock.Unlock()
 	c, err := aws.Config.GetCustomPricingData()
@@ -865,7 +866,7 @@ func (aws *AWS) DownloadPricingData() error {
 	aws.ProjectID = c.ProjectID
 	aws.SpotDataRegion = c.SpotDataRegion
 
-	aws.ConfigureAuthWith(c) // load aws authentication from configuration or secret
+	aws.ConfigureAuthWith(c, true) // load aws authentication from configuration or secret
 
 	if len(aws.SpotDataBucket) != 0 && len(aws.ProjectID) == 0 {
 		log.Warnf("using SpotDataBucket \"%s\" without ProjectID will not end well", aws.SpotDataBucket)
@@ -1284,6 +1285,20 @@ func (aws *AWS) createNode(terms *AWSProductTerms, usageType string, k models.Ke
 	key := k.Features()
 
 	meta := models.PricingMetadata{}
+	var cost string
+	publicPricingFound := true
+	c, ok := terms.OnDemand.PriceDimensions[strings.Join([]string{terms.Sku, terms.OnDemand.OfferTermCode, HourlyRateCode}, ".")]
+	if ok {
+		cost = c.PricePerUnit.USD
+	} else {
+		// Check for Chinese pricing
+		c, ok = terms.OnDemand.PriceDimensions[strings.Join([]string{terms.Sku, terms.OnDemand.OfferTermCode, HourlyRateCodeCn}, ".")]
+		if ok {
+			cost = c.PricePerUnit.CNY
+		} else {
+			publicPricingFound = false
+		}
+	}
 
 	if spotInfo, ok := aws.spotPricing(k.ID()); ok {
 		var spotcost string
@@ -1307,17 +1322,35 @@ func (aws *AWS) createNode(terms *AWSProductTerms, usageType string, k models.Ke
 		}, meta, nil
 	} else if aws.isPreemptible(key) { // Preemptible but we don't have any data in the pricing report.
 		log.DedupedWarningf(5, "Node %s marked preemptible but we have no data in spot feed", k.ID())
-		return &models.Node{
-			VCPU:         terms.VCpu,
-			VCPUCost:     aws.BaseSpotCPUPrice,
-			RAM:          terms.Memory,
-			GPU:          terms.GPU,
-			Storage:      terms.Storage,
-			BaseCPUPrice: aws.BaseCPUPrice,
-			BaseRAMPrice: aws.BaseRAMPrice,
-			BaseGPUPrice: aws.BaseGPUPrice,
-			UsageType:    PreemptibleType,
-		}, meta, nil
+		if publicPricingFound {
+			// return public price if found
+			return &models.Node{
+				Cost:         cost,
+				VCPU:         terms.VCpu,
+				RAM:          terms.Memory,
+				GPU:          terms.GPU,
+				Storage:      terms.Storage,
+				BaseCPUPrice: aws.BaseCPUPrice,
+				BaseRAMPrice: aws.BaseRAMPrice,
+				BaseGPUPrice: aws.BaseGPUPrice,
+				UsageType:    PreemptibleType,
+			}, meta, nil
+		} else {
+			// return defaults if public pricing not found
+			log.DedupedWarningf(5, "Could not find Node %s's public pricing info", k.ID())
+			return &models.Node{
+				VCPU:         terms.VCpu,
+				VCPUCost:     aws.BaseSpotCPUPrice,
+				RAMCost:      aws.BaseSpotRAMPrice,
+				RAM:          terms.Memory,
+				GPU:          terms.GPU,
+				Storage:      terms.Storage,
+				BaseCPUPrice: aws.BaseCPUPrice,
+				BaseRAMPrice: aws.BaseRAMPrice,
+				BaseGPUPrice: aws.BaseGPUPrice,
+				UsageType:    PreemptibleType,
+			}, meta, nil
+		}
 	} else if sp, ok := aws.savingsPlanPricing(k.ID()); ok {
 		strCost := fmt.Sprintf("%f", sp.EffectiveCost)
 		return &models.Node{
@@ -1347,18 +1380,11 @@ func (aws *AWS) createNode(terms *AWSProductTerms, usageType string, k models.Ke
 		}, meta, nil
 
 	}
-	var cost string
-	c, ok := terms.OnDemand.PriceDimensions[strings.Join([]string{terms.Sku, terms.OnDemand.OfferTermCode, HourlyRateCode}, ".")]
-	if ok {
-		cost = c.PricePerUnit.USD
-	} else {
-		// Check for Chinese pricing before throwing error
-		c, ok = terms.OnDemand.PriceDimensions[strings.Join([]string{terms.Sku, terms.OnDemand.OfferTermCode, HourlyRateCodeCn}, ".")]
-		if ok {
-			cost = c.PricePerUnit.CNY
-		} else {
-			return nil, meta, fmt.Errorf("Could not fetch data for \"%s\"", k.ID())
-		}
+
+	// Throw error if public price is not found
+	if !publicPricingFound {
+		log.Errorf("Could not fetch data for \"%s\"", k.ID())
+		return nil, meta, fmt.Errorf("Could not fetch data for \"%s\"", k.ID())
 	}
 
 	return &models.Node{
@@ -1386,6 +1412,21 @@ func (aws *AWS) NodePricing(k models.Key) (*models.Node, models.PricingMetadata,
 	}
 
 	meta := models.PricingMetadata{}
+	if aws.Config.GetDownloadPricing() {
+		aws.DownloadPricingDataLock.RUnlock()
+		err := aws.DownloadPricingData()
+		aws.DownloadPricingDataLock.RLock()
+		if err != nil {
+			return &models.Node{
+				Cost:             aws.BaseCPUPrice,
+				BaseCPUPrice:     aws.BaseCPUPrice,
+				BaseRAMPrice:     aws.BaseRAMPrice,
+				BaseGPUPrice:     aws.BaseGPUPrice,
+				UsageType:        usageType,
+				UsesBaseCPUPrice: true,
+			}, meta, err
+		}
+	}
 
 	terms, ok := aws.Pricing[key]
 	if ok {
@@ -1473,12 +1514,12 @@ func (aws *AWS) ConfigureAuth() error {
 	if err != nil {
 		log.Errorf("Error downloading default pricing data: %s", err.Error())
 	}
-	return aws.ConfigureAuthWith(c)
+	return aws.ConfigureAuthWith(c, false)
 }
 
 // updates the authentication to the latest values (via config or secret)
-func (aws *AWS) ConfigureAuthWith(config *models.CustomPricing) error {
-	accessKeyID, accessKeySecret := aws.getAWSAuth(false, config)
+func (aws *AWS) ConfigureAuthWith(config *models.CustomPricing, forceReload bool) error {
+	accessKeyID, accessKeySecret := aws.getAWSAuth(forceReload, config)
 	if accessKeyID != "" && accessKeySecret != "" { // credentials may exist on the actual AWS node-- if so, use those. If not, override with the service key
 		err := env.Set(env.AWSAccessKeyIDEnvVar, accessKeyID)
 		if err != nil {

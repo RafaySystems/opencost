@@ -21,6 +21,8 @@ const (
 
 	AzureOfferIDEnvVar        = "AZURE_OFFER_ID"
 	AzureBillingAccountEnvVar = "AZURE_BILLING_ACCOUNT"
+	AzureResourceGroupEnvVar  = "AZURE_RESOURCE_GROUP_NAME"
+	AzureClusterNameEnvVar    = "AZURE_CLUSTER_NAME"
 
 	KubecostNamespaceEnvVar        = "KUBECOST_NAMESPACE"
 	PodNameEnvVar                  = "POD_NAME"
@@ -290,6 +292,22 @@ func GetAzureOfferID() string {
 // price sheet API.
 func GetAzureBillingAccount() string {
 	return Get(AzureBillingAccountEnvVar, "")
+}
+
+// GetAzureResourceGroupName returns the environment variable value for
+// AzureResourceGroupEnvVar which represents the Azure resource
+// group in which the cluster was created. This is being used to get
+// pricing tier of AKS
+func GetAzureResourceGroupName() string {
+	return Get(AzureResourceGroupEnvVar, "")
+}
+
+// GetAzureClusterName returns the environment variable value for
+// AzureClusterNameEnvVar which represents the Azure cluster
+// name. This is being used to get
+// pricing tier of AKS
+func GetAzureClusterName() string {
+	return Get(AzureClusterNameEnvVar, "")
 }
 
 // GetKubecostNamespace returns the environment variable value for KubecostNamespaceEnvVar which
