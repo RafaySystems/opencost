@@ -45,6 +45,7 @@ type Node struct {
 	VCPUCost         string                `json:"CPUHourlyCost"`
 	RAM              string                `json:"RAM"`
 	RAMBytes         string                `json:"RAMBytes"`
+	RAMMb            string                `json:"RAMMb"`
 	RAMCost          string                `json:"RAMGBHourlyCost"`
 	Storage          string                `json:"storage"`
 	StorageCost      string                `json:"storageHourlyCost"`
@@ -174,6 +175,8 @@ type CustomPricing struct {
 	AzureTenantID                string `json:"azureTenantID"`
 	AzureBillingRegion           string `json:"azureBillingRegion"`
 	AzureBillingAccount          string `json:"azureBillingAccount"`
+	AzureResourceGroupName       string `json:"azureResourceGroupName"`
+	AzureClusterName             string `json:"azureClusterName"`
 	AzureOfferDurableID          string `json:"azureOfferDurableID"`
 	AzureStorageSubscriptionID   string `json:"azureStorageSubscriptionID"`
 	AzureStorageAccount          string `json:"azureStorageAccount"`
@@ -337,4 +340,6 @@ type ProviderConfig interface {
 	GetCustomPricingData() (*CustomPricing, error)
 	Update(func(*CustomPricing) error) (*CustomPricing, error)
 	UpdateFromMap(map[string]string) (*CustomPricing, error)
+	SetDownloadPricing(flag bool)
+	GetDownloadPricing() bool
 }

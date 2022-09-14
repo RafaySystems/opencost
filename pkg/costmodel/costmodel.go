@@ -1,6 +1,7 @@
 package costmodel
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"math"
@@ -20,6 +21,7 @@ import (
 	"github.com/opencost/opencost/pkg/prom"
 	prometheus "github.com/prometheus/client_golang/api"
 	prometheusClient "github.com/prometheus/client_golang/api"
+	"google.golang.org/api/compute/v1"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -60,6 +62,7 @@ type CostModel struct {
 	RequestGroup               *singleflight.Group
 	ScrapeInterval             time.Duration
 	PrometheusClient           prometheus.Client
+	MemorySizeInfo             map[string]int64
 	Provider                   costAnalyzerCloud.Provider
 	pricingMetadata            *costAnalyzerCloud.PricingMatchMetadata
 }
@@ -979,6 +982,88 @@ func (cm *CostModel) GetPricingSourceCounts() (*costAnalyzerCloud.PricingMatchMe
 	}
 }
 
+func getMachineType(projectID, zone, machineType string, ctx context.Context) (int64, error) {
+	computeService, err := compute.NewService(ctx)
+	if err != nil {
+		log.Warnf("Failed to list machine types: %v", err)
+		return 0, err
+	}
+	machineTypesListCall := computeService.MachineTypes.Get(projectID, zone, machineType)
+	machineTypes, err := machineTypesListCall.Do()
+	if err != nil {
+		log.Warnf("Failed to list machine types: %v", err)
+		return 0, err
+	}
+	return machineTypes.MemoryMb, nil
+
+}
+
+func GetMemorySize(projectID, zone, machineType string, machineTypeMemoryMap map[string]int64) (float64, error) {
+	ctx := context.Background()
+
+	var exists bool
+	var err error
+	var memoryMb int64
+
+	if strings.Contains(machineType, "custom") {
+
+		str := (strings.Split(machineType, "-"))
+		memoryStr := str[len(str)-1]
+		memoryMb, err = strconv.ParseInt(memoryStr, 10, 64)
+		if err != nil {
+			log.Warnf("Error getting memory size from machine type string : %s", err.Error())
+
+			memoryMb, err = getMachineType(projectID, zone, machineType, ctx)
+			if err != nil {
+				log.Warnf("Failed to get memoryinfo machine type: %s  err: %s", machineType, err.Error())
+				return 0, err
+			}
+		}
+
+	} else {
+		memoryMb, exists = machineTypeMemoryMap[machineType]
+
+		if !exists {
+
+			memoryMb, err = getMachineType(projectID, zone, machineType, ctx)
+
+			if err != nil {
+				log.Warnf("Failed to get machine type: %s  err: %s", machineType, err.Error())
+				return 0, err
+			}
+			machineTypeMemoryMap[machineType] = memoryMb
+		}
+
+	}
+	return float64(memoryMb), nil
+}
+func GetComputeMachineType(projectID, zone string) (map[string]int64, error) {
+
+	// Creating the Compute Service client
+
+	ctx := context.Background()
+
+	computeService, err := compute.NewService(ctx)
+	// computeService, err := compute.NewService(ctx, option.WithHTTPClient(client))
+	if err != nil {
+		log.Warnf("Failed to create compute service client: %s", err.Error())
+		return nil, err
+	}
+
+	machineTypesList := computeService.MachineTypes.List(projectID, zone)
+	machineTypes, err := machineTypesList.Do()
+	if err != nil {
+		log.Warnf("Failed to list machine types error : %s", err.Error())
+		return nil, err
+	}
+
+	machineTypeMemoryMap := make(map[string]int64)
+
+	for _, machineType := range machineTypes.Items {
+		machineTypeMemoryMap[machineType.Name] = machineType.MemoryMb
+	}
+	return machineTypeMemoryMap, nil
+}
 func (cm *CostModel) GetNodeCost(cp costAnalyzerCloud.Provider) (map[string]*costAnalyzerCloud.Node, error) {
 	cfg, err := cp.GetConfig()
 	if err != nil {
@@ -986,6 +1071,20 @@ func (cm *CostModel) GetNodeCost(cp costAnalyzerCloud.Provider) (map[string]*cos
 	}
 
 	nodeList := cm.Cache.GetAllNodes()
+	clusterInfo, err := cp.ClusterInfo()
+	if err != nil {
+		log.Warnf("error getting cluster info err: %s  ", err.Error())
+
+	}
+	zone, _ := util.GetZone(nodeList[0].Labels)
+	if clusterInfo["provider"] == "GCP" {
+		if len(cm.MemorySizeInfo) == 0 {
+			cm.MemorySizeInfo, err = GetComputeMachineType(clusterInfo["project"], zone)
+			if err != nil {
+				log.Warnf("error in getcomputemachinetype    call err %s  ", err.Error())
+			}
+		}
+	}
 	nodes := make(map[string]*costAnalyzerCloud.Node)
 
 	pmd := &costAnalyzerCloud.PricingMatchMetadata{
@@ -1002,6 +1101,9 @@ func (cm *CostModel) GetNodeCost(cp costAnalyzerCloud.Provider) (map[string]*cos
 		cnode, _, err := cp.NodePricing(cp.GetKey(nodeLabels, n))
 		if err != nil {
 			log.Infof("Error getting node pricing. Error: %s", err.Error())
+			if strings.Contains(err.Error(), "Invalid Pricing Key") {
+				return nil, fmt.Errorf("Error getting node pricing. Error: %s", err.Error())
+			}
 			if cnode != nil {
 				nodes[name] = cnode
 				continue
@@ -1051,7 +1153,7 @@ func (cm *CostModel) GetNodeCost(cp costAnalyzerCloud.Provider) (map[string]*cos
 			cpu = 0
 		}
 
-		var ram float64
+		var ram, ramMb float64
 		if newCnode.RAM == "" {
 			newCnode.RAM = n.Status.Capacity.Memory().String()
 		}
@@ -1062,6 +1164,15 @@ func (cm *CostModel) GetNodeCost(cp costAnalyzerCloud.Provider) (map[string]*cos
 		}
 
 		newCnode.RAMBytes = fmt.Sprintf("%f", ram)
+		if clusterInfo["provider"] == "GCP" {
+			ramMb, err = GetMemorySize(clusterInfo["project"], zone, newCnode.InstanceType, cm.MemorySizeInfo)
+			newCnode.RAMMb = fmt.Sprintf("%f", ramMb)
+
+			if err != nil {
+				log.Warnf("error in getmemorysize rammb  err: %s", err.Error())
+				newCnode.RAMMb = "0"
+			}
+		}
 
 		gpuc, err := strconv.ParseFloat(newCnode.GPU, 64)
 		if err != nil {
@@ -1228,6 +1339,13 @@ func (cm *CostModel) GetNodeCost(cp costAnalyzerCloud.Provider) (map[string]*cos
 			cpuPrice := ramPrice * cpuToRAMRatio
 			gpuPrice := ramPrice * gpuToRAMRatio
 
+			if (newCnode.RAMCost == "") && (newCnode.VCPUCost == "") {
+				const gpuToNodePrice = 0.827
+				gpuPrice = nodePrice * gpuToNodePrice / gpuc
+				cpuPrice = nodePrice * (1 - gpuToNodePrice) / 2 / cpu
+				ramPrice = nodePrice * (1 - gpuToNodePrice) / 2 / ramGB
+			}
+
 			newCnode.VCPUCost = fmt.Sprintf("%f", cpuPrice)
 			newCnode.RAMCost = fmt.Sprintf("%f", ramPrice)
 			newCnode.RAMBytes = fmt.Sprintf("%f", ram)
@@ -1279,6 +1397,7 @@ func (cm *CostModel) GetNodeCost(cp costAnalyzerCloud.Provider) (map[string]*cos
 			var nodePrice float64
 			if newCnode.Cost != "" {
 				nodePrice, err = strconv.ParseFloat(newCnode.Cost, 64)
+				log.Warnf("Node price for %s is %s", name, newCnode.Cost)
 				if err != nil {
 					log.Warnf("Could not parse total node price")
 					return nil, err
@@ -1317,6 +1436,15 @@ func (cm *CostModel) GetNodeCost(cp costAnalyzerCloud.Provider) (map[string]*cos
 			if defaultRAM != 0 {
 				newCnode.VCPUCost = fmt.Sprintf("%f", cpuPrice)
 				newCnode.RAMCost = fmt.Sprintf("%f", ramPrice)
+			} else if defaultCPU == 0 {
+				ramPrice = nodePrice / ramGB / 2
+				if cpu != 0 {
+					cpuPrice = (nodePrice - ramPrice*ramGB) / cpu
+				} else {
+					cpuPrice = (nodePrice - ramPrice*ramGB)
+				}
+				newCnode.VCPUCost = fmt.Sprintf("%f", cpuPrice)
+				newCnode.RAMCost = fmt.Sprintf("%f", ramPrice)
 			} else { // just assign the full price to CPU
 				if cpu != 0 {
 					newCnode.VCPUCost = fmt.Sprintf("%f", nodePrice/cpu)
@@ -1325,8 +1453,8 @@ func (cm *CostModel) GetNodeCost(cp costAnalyzerCloud.Provider) (map[string]*cos
 				}
 			}
 			newCnode.RAMBytes = fmt.Sprintf("%f", ram)
-
-			log.Tracef("Computed \"%s\" RAM Cost := %v", name, newCnode.RAMCost)
+			log.Infof("Node: %s, Price: %s, CPU: %f, CPUPrice: %s, RAM: %f, RAMPrice: %s", name, newCnode.Cost, cpu, newCnode.VCPUCost, ramGB, newCnode.RAMCost)
+			log.Debugf("Computed \"%s\" RAM Cost := %v", name, newCnode.RAMCost)
 		}
 
 		nodes[name] = &newCnode

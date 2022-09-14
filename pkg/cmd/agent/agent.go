@@ -161,7 +161,7 @@ func Execute(opts *AgentOpts) error {
 		LocalConfigPath:   "/",
 	})
 
-	cloudProviderKey := env.GetCloudProviderAPIKey()
+	cloudProviderKey := env.GetCloudProviderCreds()
 	cloudProvider, err := provider.NewProvider(clusterCache, cloudProviderKey, confManager)
 	if err != nil {
 		panic(err.Error())
