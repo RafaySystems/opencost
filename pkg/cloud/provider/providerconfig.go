@@ -23,22 +23,30 @@ type ProviderConfig struct {
 	lock            *sync.Mutex
 	configManager   *config.ConfigFileManager
 	configFile      *config.ConfigFile
+	secretFile      *config.ConfigFile
 	customPricing   *models.CustomPricing
 	watcherHandleID config.HandlerID
+	secretWHandleID config.HandlerID
+	downloadPricing bool
 }
 
 // NewProviderConfig creates a new ConfigFile and returns the ProviderConfig
 func NewProviderConfig(configManager *config.ConfigFileManager, fileName string) *ProviderConfig {
 	configFile := configManager.ConfigFileAt(configPathFor(fileName))
+	secretFile := configManager.ConfigFileAt(models.AuthSecretPath)
 	pc := &ProviderConfig{
-		lock:          new(sync.Mutex),
-		configManager: configManager,
-		configFile:    configFile,
-		customPricing: nil,
+		lock:            new(sync.Mutex),
+		configManager:   configManager,
+		configFile:      configFile,
+		secretFile:      secretFile,
+		customPricing:   nil,
+		downloadPricing: true,
 	}
 
 	// add the provider config func as handler for the config file changes
 	pc.watcherHandleID = configFile.AddChangeHandler(pc.onConfigFileUpdated)
+	pc.secretWHandleID = secretFile.AddChangeHandler(pc.onConfigFileUpdated)
+
 	return pc
 }
 
@@ -61,6 +69,8 @@ func (pc *ProviderConfig) onConfigFileUpdated(changeType config.ChangeType, data
 		if err != nil {
 			log.Infof("Could not decode Custom Pricing file at path %s. Using default.", pc.configFile.Path())
 			customPricing = DefaultPricing()
+		} else {
+			pc.downloadPricing = true
 		}
 
 		pc.customPricing = customPricing
@@ -148,7 +158,7 @@ func (pc *ProviderConfig) loadConfig(writeIfNotExists bool) (*models.CustomPrici
 	if pc.customPricing.ServiceKeyName == "AKIXXX" {
 		pc.customPricing.ServiceKeyName = ""
 	}
-
+	log.Errorf("Custom Pricing found %s -- %s", pc.configFile.Path(), string(byteValue[:]))
 	return pc.customPricing, nil
 }
 
@@ -223,6 +233,16 @@ func (pc *ProviderConfig) UpdateFromMap(a map[string]string) (*models.CustomPric
 
 		return nil
 	})
+}
+
+func (pc *ProviderConfig) SetDownloadPricing(flag bool) {
+	pc.lock.Lock()
+	defer pc.lock.Unlock()
+	pc.downloadPricing = flag
+}
+
+func (pc *ProviderConfig) GetDownloadPricing() bool {
+	return pc.downloadPricing
 }
 
 // DefaultPricing should be returned so we can do computation even if no file is supplied.

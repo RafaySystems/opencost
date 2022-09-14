@@ -203,12 +203,12 @@ func (gcp *GCP) GetManagementPlatform() (string, error) {
 }
 
 // Attempts to load a GCP auth secret and copy the contents to the key file.
-func (*GCP) loadGCPAuthSecret() {
+func (*GCP) loadGCPAuthSecret(forceReload bool) {
 	path := env.GetConfigPathWithDefault("/models/")
 
 	keyPath := path + "key.json"
 	keyExists, _ := fileutil.FileExists(keyPath)
-	if keyExists {
+	if !forceReload && keyExists {
 		log.Info("GCP Auth Key already exists, no need to load from secret")
 		return
 	}
@@ -1033,6 +1033,7 @@ func (gcp *GCP) parsePages(inputKeys map[string]models.Key, pvKeys map[string]mo
 
 // DownloadPricingData fetches data from the GCP Pricing API. Requires a key-- a kubecost key is provided for quickstart, but should be replaced by a users.
 func (gcp *GCP) DownloadPricingData() error {
+	defer gcp.Config.SetDownloadPricing(false)
 	gcp.DownloadPricingDataLock.Lock()
 	defer gcp.DownloadPricingDataLock.Unlock()
 	c, err := gcp.Config.GetCustomPricingData()
@@ -1040,7 +1041,7 @@ func (gcp *GCP) DownloadPricingData() error {
 		log.Errorf("Error downloading default pricing data: %s", err.Error())
 		return err
 	}
-	gcp.loadGCPAuthSecret()
+	gcp.loadGCPAuthSecret(true)
 
 	gcp.BaseCPUPrice = c.CPU
 	gcp.ProjectID = c.ProjectID
