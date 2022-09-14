@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"cloud.google.com/go/compute/metadata"
 	"github.com/opencost/opencost/core/pkg/clusters"
 	"github.com/opencost/opencost/core/pkg/log"
 	"github.com/opencost/opencost/core/pkg/util"
@@ -121,6 +122,7 @@ var (
 	cpuGv                      *prometheus.GaugeVec
 	ramGv                      *prometheus.GaugeVec
 	gpuGv                      *prometheus.GaugeVec
+	memoryRam                  *prometheus.GaugeVec
 	gpuCountGv                 *prometheus.GaugeVec
 	pvGv                       *prometheus.GaugeVec
 	spotGv                     *prometheus.GaugeVec
@@ -168,7 +170,13 @@ func initCostModelMetrics(clusterCache clustercache.ClusterCache, provider model
 		if _, disabled := disabledMetrics["node_gpu_hourly_cost"]; !disabled {
 			toRegisterGV = append(toRegisterGV, gpuGv)
 		}
-
+		memoryRam = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "node_capacity_memory",
+			Help: "node_capacity_memory count of ram on this node",
+		}, []string{"instance", "node", "instance_type", "region", "provider_id", "arch"})
+		if _, disabled := disabledMetrics["node_capacity_memory"]; !disabled {
+			toRegisterGV = append(toRegisterGV, memoryRam)
+		}
 		gpuCountGv = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "node_gpu_count",
 			Help: "node_gpu_count count of gpu on this node",
@@ -307,6 +315,7 @@ type CostModelMetricsEmitter struct {
 	PersistentVolumePriceRecorder *prometheus.GaugeVec
 	GPUPriceRecorder              *prometheus.GaugeVec
 	GPUCountRecorder              *prometheus.GaugeVec
+	MemoryRecorder                *prometheus.GaugeVec
 	PVAllocationRecorder          *prometheus.GaugeVec
 	NodeSpotRecorder              *prometheus.GaugeVec
 	NodeTotalPriceRecorder        *prometheus.GaugeVec
@@ -356,6 +365,7 @@ func NewCostModelMetricsEmitter(promClient promclient.Client, clusterCache clust
 		CloudProvider:                 provider,
 		Model:                         model,
 		CPUPriceRecorder:              cpuGv,
+		MemoryRecorder:                memoryRam,
 		RAMPriceRecorder:              ramGv,
 		GPUPriceRecorder:              gpuGv,
 		GPUCountRecorder:              gpuCountGv,
@@ -489,6 +499,7 @@ func (cmme *CostModelMetricsEmitter) Start() bool {
 					cpu = 1 // Assume 1 CPU
 				}
 				ramCost, _ := strconv.ParseFloat(node.RAMCost, 64)
+				log.Warnf("Node -- %s, ramCost -- %s, %f", nodeName, node.RAMCost, ramCost)
 				if math.IsNaN(ramCost) || math.IsInf(ramCost, 0) {
 					ramCost, _ = strconv.ParseFloat(cfg.RAM, 64)
 					if math.IsNaN(ramCost) || math.IsInf(ramCost, 0) {
@@ -499,6 +510,7 @@ func (cmme *CostModelMetricsEmitter) Start() bool {
 				if math.IsNaN(ram) || math.IsInf(ram, 0) {
 					ram = 0
 				}
+				
 				gpu, _ := strconv.ParseFloat(node.GPU, 64)
 				if math.IsNaN(gpu) || math.IsInf(gpu, 0) {
 					gpu = 0
@@ -512,8 +524,24 @@ func (cmme *CostModelMetricsEmitter) Start() bool {
 				}
 				nodeType := node.InstanceType
 				nodeRegion := node.Region
+				var totalCost,ramMb float64
+				if metadata.OnGCE() || strings.HasPrefix(node.ProviderID, "gce") {
+					ramMb, _ = strconv.ParseFloat(node.RAMMb, 64)
+					if math.IsNaN(ramMb) || math.IsInf(ramMb, 0) {
+						ramMb = 0
+					}
+				totalCost = cpu*cpuCost + ramCost*(ramMb/1024) + gpu*gpuCost
+				if strings.Contains(nodeType, "custom") {
+					totalCost = totalCost * 1.05
+					log.Debugf("totalcost data adding 5 percent for custom machine type  %f  ", totalCost)
 
-				totalCost := cpu*cpuCost + ramCost*(ram/1024/1024/1024) + gpu*gpuCost
+				}
+				} else {
+
+					totalCost = cpu*cpuCost + ramCost*(ram/1024/1024/1024) + gpu*gpuCost
+
+				}
+
 
 				labelKey := getKeyFromLabelStrings(nodeName, nodeName, nodeType, nodeRegion, node.ProviderID, node.ArchType)
 
@@ -532,11 +560,14 @@ func (cmme *CostModelMetricsEmitter) Start() bool {
 
 				cmme.GPUCountRecorder.WithLabelValues(nodeName, nodeName, nodeType, nodeRegion, node.ProviderID, node.ArchType).Set(gpu)
 				cmme.GPUPriceRecorder.WithLabelValues(nodeName, nodeName, nodeType, nodeRegion, node.ProviderID, node.ArchType).Set(gpuCost)
+				cmme.MemoryRecorder.WithLabelValues(nodeName, nodeName, nodeType, nodeRegion, node.ProviderID, node.ArchType).Set(ramMb)
 
 				const outlierFactor float64 = 30
 				// don't record cpuCost, ramCost, or gpuCost in the case of wild outliers
 				// k8s api sometimes causes cost spikes as described here:
 				// https://github.com/opencost/opencost/issues/927
+				/* Removing outlier detection.
+				//https://github.com/opencost/opencost/pull/1251
 				cpuOutlierCutoff := outlierFactor * avgCosts.CpuCostAverage
 				if cpuCost < cpuOutlierCutoff {
 					cmme.CPUPriceRecorder.WithLabelValues(nodeName, nodeName, nodeType, nodeRegion, node.ProviderID, node.ArchType).Set(cpuCost)
@@ -559,6 +590,16 @@ func (cmme *CostModelMetricsEmitter) Start() bool {
 				} else {
 					log.Debugf("CPU and RAM outlier detected, not recording node %s total cost %f", nodeName, totalCost)
 				}
+				*/
+				// Adding the fix.
+				// https://github.com/opencost/opencost/pull/1251
+				cmme.CPUPriceRecorder.WithLabelValues(nodeName, nodeName, nodeType, nodeRegion, node.ProviderID, node.ArchType).Set(cpuCost)
+				avgCosts.CpuCostAverage = (avgCosts.CpuCostAverage*avgCosts.NumCpuDataPoints + cpuCost) / (avgCosts.NumCpuDataPoints + 1)
+				avgCosts.NumCpuDataPoints += 1
+				cmme.RAMPriceRecorder.WithLabelValues(nodeName, nodeName, nodeType, nodeRegion, node.ProviderID, node.ArchType).Set(ramCost)
+				avgCosts.RamCostAverage = (avgCosts.RamCostAverage*avgCosts.NumRamDataPoints + ramCost) / (avgCosts.NumRamDataPoints + 1)
+				avgCosts.NumRamDataPoints += 1
+				cmme.NodeTotalPriceRecorder.WithLabelValues(nodeName, nodeName, nodeType, nodeRegion, node.ProviderID, node.ArchType).Set(totalCost)
 
 				nodeCostAverages[labelKey] = avgCosts
 
@@ -730,6 +771,12 @@ func (cmme *CostModelMetricsEmitter) Start() bool {
 						log.Debugf("No data observed for node with labels %v, removed from ramprice", labels)
 					} else {
 						log.Warnf("Failed to remove label set %v from metric node_ram_hourly_cost. Failure to remove stale metrics may result in inaccurate data.", labels)
+					}
+					ok = cmme.MemoryRecorder.DeleteLabelValues(labels...)
+					if ok {
+						log.Debugf("No data observed for node with labels %v, removed from ramMemory", labels)
+					} else {
+						log.Warnf("Failed to remove label set %v from metric node_capacity_memory. Failure to remove stale metrics may result in inaccurate data.", labels)
 					}
 					delete(nodeSeen, labelString)
 					delete(nodeCostAverages, labelString)
