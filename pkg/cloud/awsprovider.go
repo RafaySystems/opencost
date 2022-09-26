@@ -777,6 +777,7 @@ func (aws *AWS) SpotRefreshEnabled() bool {
 
 // DownloadPricingData fetches data from the AWS Pricing API
 func (aws *AWS) DownloadPricingData() error {
+	defer aws.Config.SetDownloadPricing(false)
 	aws.DownloadPricingDataLock.Lock()
 	defer aws.DownloadPricingDataLock.Unlock()
 	c, err := aws.Config.GetCustomPricingData()
@@ -1263,6 +1264,22 @@ func (aws *AWS) NodePricing(k Key) (*Node, error) {
 	usageType := "ondemand"
 	if aws.isPreemptible(key) {
 		usageType = PreemptibleType
+	}
+
+	if aws.Config.downloadPricing {
+		aws.DownloadPricingDataLock.RUnlock()
+		err := aws.DownloadPricingData()
+		aws.DownloadPricingDataLock.RLock()
+		if err != nil {
+			return &Node{
+				Cost:             aws.BaseCPUPrice,
+				BaseCPUPrice:     aws.BaseCPUPrice,
+				BaseRAMPrice:     aws.BaseRAMPrice,
+				BaseGPUPrice:     aws.BaseGPUPrice,
+				UsageType:        usageType,
+				UsesBaseCPUPrice: true,
+			}, err
+		}
 	}
 
 	terms, ok := aws.Pricing[key]

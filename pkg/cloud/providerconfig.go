@@ -25,16 +25,18 @@ type ProviderConfig struct {
 	configFile      *config.ConfigFile
 	customPricing   *CustomPricing
 	watcherHandleID config.HandlerID
+	downloadPricing bool
 }
 
 // NewProviderConfig creates a new ConfigFile and returns the ProviderConfig
 func NewProviderConfig(configManager *config.ConfigFileManager, fileName string) *ProviderConfig {
 	configFile := configManager.ConfigFileAt(configPathFor(fileName))
 	pc := &ProviderConfig{
-		lock:          new(sync.Mutex),
-		configManager: configManager,
-		configFile:    configFile,
-		customPricing: nil,
+		lock:            new(sync.Mutex),
+		configManager:   configManager,
+		configFile:      configFile,
+		customPricing:   nil,
+		downloadPricing: true,
 	}
 
 	// add the provider config func as handler for the config file changes
@@ -61,6 +63,8 @@ func (pc *ProviderConfig) onConfigFileUpdated(changeType config.ChangeType, data
 		if err != nil {
 			log.Infof("Could not decode Custom Pricing file at path %s. Using default.", pc.configFile.Path())
 			customPricing = DefaultPricing()
+		} else {
+			pc.downloadPricing = true
 		}
 
 		pc.customPricing = customPricing
@@ -208,6 +212,12 @@ func (pc *ProviderConfig) UpdateFromMap(a map[string]string) (*CustomPricing, er
 
 		return nil
 	})
+}
+
+func (pc *ProviderConfig) SetDownloadPricing(flag bool) {
+	pc.lock.Lock()
+	defer pc.lock.Unlock()
+	pc.downloadPricing = flag
 }
 
 // DefaultPricing should be returned so we can do computation even if no file is supplied.

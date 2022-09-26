@@ -840,6 +840,7 @@ func (gcp *GCP) parsePages(inputKeys map[string]Key, pvKeys map[string]PVKey) (m
 
 // DownloadPricingData fetches data from the GCP Pricing API. Requires a key-- a kubecost key is provided for quickstart, but should be replaced by a users.
 func (gcp *GCP) DownloadPricingData() error {
+	defer gcp.Config.SetDownloadPricing(false)
 	gcp.DownloadPricingDataLock.Lock()
 	defer gcp.DownloadPricingDataLock.Unlock()
 	c, err := gcp.Config.GetCustomPricingData()

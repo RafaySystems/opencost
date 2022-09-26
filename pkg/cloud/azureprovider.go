@@ -576,7 +576,7 @@ func (az *Azure) GetAzureStorageConfig(forceReload bool, cp *CustomPricing) (*Az
 				Message: "Azure Storage Config exists",
 				Status:  true,
 			})
-			
+
 			return asc, nil
 		}
 	}
@@ -754,6 +754,7 @@ func (az *Azure) GetManagementPlatform() (string, error) {
 
 // DownloadPricingData uses provided azure "best guesses" for pricing
 func (az *Azure) DownloadPricingData() error {
+	defer az.Config.SetDownloadPricing(false)
 	az.DownloadPricingDataLock.Lock()
 	defer az.DownloadPricingDataLock.Unlock()
 
@@ -991,6 +992,14 @@ func (az *Azure) NodePricing(key Key) (*Node, error) {
 	az.DownloadPricingDataLock.RLock()
 	defer az.DownloadPricingDataLock.RUnlock()
 
+	if az.Config.downloadPricing {
+		az.DownloadPricingDataLock.RUnlock()
+		err := az.DownloadPricingData()
+		az.DownloadPricingDataLock.RLock()
+		if err != nil {
+			log.Errorf("Error refreshing pricing data: %s", err.Error())
+		}
+	}
 	azKey, ok := key.(*azureKey)
 	if !ok {
 		return nil, fmt.Errorf("azure: NodePricing: key is of type %T", key)
