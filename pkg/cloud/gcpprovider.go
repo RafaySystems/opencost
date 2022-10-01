@@ -197,12 +197,12 @@ func (gcp *GCP) GetManagementPlatform() (string, error) {
 }
 
 // Attempts to load a GCP auth secret and copy the contents to the key file.
-func (*GCP) loadGCPAuthSecret() {
+func (*GCP) loadGCPAuthSecret(forceReload bool) {
 	path := env.GetConfigPathWithDefault("/models/")
 
 	keyPath := path + "key.json"
 	keyExists, _ := fileutil.FileExists(keyPath)
-	if keyExists {
+	if !forceReload && keyExists {
 		log.Info("GCP Auth Key already exists, no need to load from secret")
 		return
 	}
@@ -848,7 +848,7 @@ func (gcp *GCP) DownloadPricingData() error {
 		log.Errorf("Error downloading default pricing data: %s", err.Error())
 		return err
 	}
-	gcp.loadGCPAuthSecret()
+	gcp.loadGCPAuthSecret(true)
 
 	gcp.BaseCPUPrice = c.CPU
 	gcp.ProjectID = c.ProjectID
@@ -1342,6 +1342,12 @@ func (gcp *GCP) isValidPricingKey(key Key) bool {
 
 // NodePricing returns GCP pricing data for a single node
 func (gcp *GCP) NodePricing(key Key) (*Node, error) {
+	if gcp.Config.downloadPricing {
+		err := gcp.DownloadPricingData()
+		if err != nil {
+			return nil, fmt.Errorf("Download pricing data failed: %s", err.Error())
+		}
+	}
 	if n, ok := gcp.getPricing(key); ok {
 		log.Debugf("Returning pricing for node %s: %+v from SKU %s", key, n.Node, n.Name)
 		n.Node.BaseCPUPrice = gcp.BaseCPUPrice

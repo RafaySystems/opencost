@@ -23,24 +23,30 @@ type ProviderConfig struct {
 	lock            *sync.Mutex
 	configManager   *config.ConfigFileManager
 	configFile      *config.ConfigFile
+	secretFile      *config.ConfigFile
 	customPricing   *CustomPricing
 	watcherHandleID config.HandlerID
+	secretWHandleID config.HandlerID
 	downloadPricing bool
 }
 
 // NewProviderConfig creates a new ConfigFile and returns the ProviderConfig
 func NewProviderConfig(configManager *config.ConfigFileManager, fileName string) *ProviderConfig {
 	configFile := configManager.ConfigFileAt(configPathFor(fileName))
+	secretFile := configManager.ConfigFileAt(authSecretPath)
 	pc := &ProviderConfig{
 		lock:            new(sync.Mutex),
 		configManager:   configManager,
 		configFile:      configFile,
+		secretFile:      secretFile,
 		customPricing:   nil,
 		downloadPricing: true,
 	}
 
 	// add the provider config func as handler for the config file changes
 	pc.watcherHandleID = configFile.AddChangeHandler(pc.onConfigFileUpdated)
+	pc.secretWHandleID = secretFile.AddChangeHandler(pc.onConfigFileUpdated)
+
 	return pc
 }
 
@@ -78,6 +84,14 @@ func (pc *ProviderConfig) onConfigFileUpdated(changeType config.ChangeType, data
 	}
 }
 
+func (pc *ProviderConfig) onSecretFileUpdated(changeType config.ChangeType, data) {
+	switch changeType {
+	case config.ChangeTypeCreated:
+		fallthrough
+	case config.ChangeTypeModified:
+		pc.lock.Lock()
+		defer pc.lock.Unlock()
+}
 // Non-ThreadSafe logic to load the config file if a cache does not exist. Flag to write
 // the default config if the config file doesn't exist.
 func (pc *ProviderConfig) loadConfig(writeIfNotExists bool) (*CustomPricing, error) {

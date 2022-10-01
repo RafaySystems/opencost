@@ -1,6 +1,6 @@
 IMG ?= rafay-opencost:latest
 #TS := $(shell /bin/date "+%Y%m%d%H%M%S")
-TS := outlierFix
+TS := configReloadFix
 DEV_USER ?= dev
 DEV_TAG := registry.dev.rafay-edge.net:5000/${DEV_USER}/rafay-opencost:$(TS)
 
