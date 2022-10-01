@@ -1128,13 +1128,20 @@ func (cm *CostModel) GetNodeCost(cp costAnalyzerCloud.Provider) (map[string]*cos
 			cpuPrice := ramPrice * cpuToRAMRatio
 			gpuPrice := ramPrice * gpuToRAMRatio
 
+			if (newCnode.RAMCost == "") && (newCnode.VCPUCost == "") {
+				const gpuToNodePrice = 0.827
+				gpuPrice = nodePrice * gpuToNodePrice / gpuc
+				cpuPrice = nodePrice * (1 - gpuToNodePrice) / 2 / cpu
+				ramPrice = nodePrice * (1 - gpuToNodePrice) / 2 / ramGB
+			}
+
 			newCnode.VCPUCost = fmt.Sprintf("%f", cpuPrice)
 			newCnode.RAMCost = fmt.Sprintf("%f", ramPrice)
 			newCnode.RAMBytes = fmt.Sprintf("%f", ram)
 			newCnode.GPUCost = fmt.Sprintf("%f", gpuPrice)
 		} else if newCnode.RAMCost == "" {
 			// We couldn't find a ramcost, so fix cpu and allocate ram accordingly
-			log.Infof("No RAM cost found for %s, calculating...", cp.GetKey(nodeLabels, n).Features())
+			log.Infof("No RAM cost found from config %s, calculating based on node cost...", cp.GetKey(nodeLabels, n).Features())
 
 			defaultCPU, err := strconv.ParseFloat(cfg.CPU, 64)
 			if err != nil {
