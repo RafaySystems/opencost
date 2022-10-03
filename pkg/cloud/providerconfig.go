@@ -84,14 +84,6 @@ func (pc *ProviderConfig) onConfigFileUpdated(changeType config.ChangeType, data
 	}
 }
 
-func (pc *ProviderConfig) onSecretFileUpdated(changeType config.ChangeType, data) {
-	switch changeType {
-	case config.ChangeTypeCreated:
-		fallthrough
-	case config.ChangeTypeModified:
-		pc.lock.Lock()
-		defer pc.lock.Unlock()
-}
 // Non-ThreadSafe logic to load the config file if a cache does not exist. Flag to write
 // the default config if the config file doesn't exist.
 func (pc *ProviderConfig) loadConfig(writeIfNotExists bool) (*CustomPricing, error) {
