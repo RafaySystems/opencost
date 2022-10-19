@@ -1,0 +1,71 @@
+AWSTemplateFormatVersion: '2010-09-09'
+
+
+Description: Rafay Cost Management Sub-Account Template
+
+Parameters:
+  MasterPayerAccountID:
+    Description: Your AWS masterpayer account
+    Type: String
+  SpotDataFeedBucketName:
+    Description: Optional. The bucket that spot feed are written to
+    Type: String
+
+Conditions:
+  HasSpotFeedBucketName: !Not [ !Equals [ !Ref SpotDataFeedBucketName, "" ] ]
+
+Resources:
+  RafayCostUser:
+    Type: 'AWS::IAM::User'
+    Properties:
+      UserName: 'RafayCostUser'
+  RafayCostRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      RoleName: 'RafayCostRole'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - 'ec2.amazonaws.com'
+            Action:
+              - 'sts:AssumeRole'
+  AssumeRolePolicy:
+    Type: 'AWS::IAM::Policy'
+    Properties:
+      Users:
+        - !Ref RafayCostUser
+      Roles:
+        - !Ref RafayCostRole
+      PolicyName: 'kubecost-assume-masterpayer'
+      PolicyDocument:
+        Statement:
+        - Sid: AssumeRoleInMasterPayer
+          Effect: Allow
+          Action: 'sts:AssumeRole'
+          Resource: !Sub "arn:aws:iam::${MasterPayerAccountID}:role/RafayCostRole-${AWS::AccountId}"
+
+  SpotFeedPolicy:
+    Type: 'AWS::IAM::Policy'
+    Condition: HasSpotFeedBucketName
+    Properties:
+      Users:
+        - !Ref RafayCostUser
+      Roles:
+        - !Ref RafayCostRole
+      PolicyName: 'rafay-spot-data-feed-access'
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Sid: SpotDataAccess
+          Effect: Allow
+          Action:
+          - s3:ListAllMyBuckets
+          - s3:ListBucket
+          - s3:HeadBucket
+          - s3:HeadObject
+          - s3:List*
+          - s3:Get*
+          Resource: "*"
