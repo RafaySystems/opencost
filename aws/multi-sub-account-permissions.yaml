@@ -39,7 +39,7 @@ Resources:
         - !Ref RafayCostUser
       Roles:
         - !Ref RafayCostRole
-      PolicyName: 'kubecost-assume-masterpayer'
+      PolicyName: 'rafay-assume-masterpayer'
       PolicyDocument:
         Statement:
         - Sid: AssumeRoleInMasterPayer
