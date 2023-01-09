@@ -4,7 +4,6 @@
 
 OpenCost models give teams visibility into current and historical Kubernetes spend and resource allocation. These models provide cost transparency in Kubernetes environments that support multiple applications, teams, departments, etc.
 
-
 OpenCost was originally developed and open sourced by [Kubecost](https://kubecost.com). This project combines a [specification](/spec/) as well as a Golang implementation of these detailed requirements.
 
 ![OpenCost allocation UI](/allocation-drilldown.gif)
@@ -15,7 +14,6 @@ To see the full functionality of OpenCost you can view [OpenCost features](https
 - Dynamic asset pricing enabled by integrations with AWS, Azure, and GCP billing APIs
 - Supports on-prem k8s clusters with custom pricing sheets
 - Allocation for in-cluster resources like CPU, GPU, memory, and persistent volumes.
-- Allocation for AWS & GCP out-of-cluster resources like RDS instances and S3 buckets with key (optional)
 - Easily export pricing data to Prometheus with /metrics endpoint ([learn more](PROMETHEUS.md))
 - Free and open source distribution (Apache2 license)
 
@@ -27,19 +25,19 @@ Visit the full documentation for [recommended install options](https://www.openc
 
 ## Usage
 
-- User interface
-- [Cost APIs](https://github.com/kubecost/docs/blob/master/apis.md)
-- [CLI / kubectl cost](https://github.com/kubecost/kubectl-cost)
-- [Prometheus metric exporter](kubecost-exporter.md)
+- [Cost APIs](https://www.opencost.io/docs/api)
+- [CLI / kubectl cost](https://www.opencost.io/docs/kubectl-cost)
+- [Prometheus Metrics](https://www.opencost.io/docs/prometheus)
+- Reference [User Interface](https://github.com/opencost/opencost/tree/develop/ui)
 
 ## Contributing
 
-We :heart: pull requests! See [`CONTRIBUTING.md`](CONTRIBUTING.md) for information on buiding the project from source
+We :heart: pull requests! See [`CONTRIBUTING.md`](CONTRIBUTING.md) for information on building the project from source
 and contributing changes.
 
 ## Community
 
-If you need any support or have any questions on contributing to the project, you can reach us on [CNCF Slack](https://slack.cncf.io/) in the [#opencost](https://cloud-native.slack.com/archives/C03D56FPD4G) channel or via email at [team@kubecost.com](team@kubecost.com).
+If you need any support or have any questions on contributing to the project, you can reach us on [CNCF Slack](https://slack.cncf.io/) in the [#opencost](https://cloud-native.slack.com/archives/C03D56FPD4G) channel or via email at [opencost@kubecost.com](opencost@kubecost.com).
 
 ## FAQ
 
