@@ -1386,6 +1386,7 @@ func (aws *AWS) NodePricing(k models.Key) (*models.Node, models.PricingMetadata,
 		usageType = PreemptibleType
 	}
 
+
 	meta := models.PricingMetadata{}
 	if aws.Config.GetDownloadPricing() {
 		aws.DownloadPricingDataLock.RUnlock()

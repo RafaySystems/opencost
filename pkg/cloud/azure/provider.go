@@ -1089,6 +1089,7 @@ func (az *Azure) NodePricing(key models.Key) (*models.Node, models.PricingMetada
 		log.DedupedWarningf(1, "Unable to download Azure pricing data")
 	}
 
+
 	meta := models.PricingMetadata{}
 
 	if az.Config.GetDownloadPricing() {
