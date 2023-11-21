@@ -2,6 +2,7 @@ package ast
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/opencost/opencost/pkg/filter21/util"
@@ -236,6 +237,9 @@ func Clone(filter FilterNode) FilterNode {
 	var currentOps *util.Stack[FilterGroup] = util.NewStack[FilterGroup]()
 
 	PreOrderTraversal(filter, func(fn FilterNode, state TraversalState) {
+		if fn == nil {
+			return
+		}
 		switch n := fn.(type) {
 		case *AndOp:
 			if state == TraversalStateEnter {
@@ -277,7 +281,10 @@ func Clone(filter FilterNode) FilterNode {
 				currentOps.Top().Add(&ContradictionOp{})
 			}
 		case *EqualOp:
-			var field Field = *n.Left.Field
+			var field Field
+			if n.Left.Field != nil {
+				field = *n.Left.Field
+			}
 			sm := &EqualOp{
 				Left: Identifier{
 					Field: &field,
@@ -293,7 +300,10 @@ func Clone(filter FilterNode) FilterNode {
 			}
 
 		case *ContainsOp:
-			var field Field = *n.Left.Field
+			var field Field
+			if n.Left.Field != nil {
+				field = *n.Left.Field
+			}
 			sm := &ContainsOp{
 				Left: Identifier{
 					Field: &field,
@@ -309,7 +319,10 @@ func Clone(filter FilterNode) FilterNode {
 			}
 
 		case *ContainsPrefixOp:
-			var field Field = *n.Left.Field
+			var field Field
+			if n.Left.Field != nil {
+				field = *n.Left.Field
+			}
 			sm := &ContainsPrefixOp{
 				Left: Identifier{
 					Field: &field,
@@ -325,7 +338,10 @@ func Clone(filter FilterNode) FilterNode {
 			}
 
 		case *ContainsSuffixOp:
-			var field Field = *n.Left.Field
+			var field Field
+			if n.Left.Field != nil {
+				field = *n.Left.Field
+			}
 			sm := &ContainsSuffixOp{
 				Left: Identifier{
 					Field: &field,
@@ -351,4 +367,43 @@ func indent(depth int) string {
 		return ""
 	}
 	return strings.Repeat("  ", depth)
+}
+
+func Fields(filter FilterNode) []Field {
+	fields := map[Field]bool{}
+
+	PreOrderTraversal(filter, func(fn FilterNode, state TraversalState) {
+		if fn == nil {
+			return
+		}
+		switch n := fn.(type) {
+		case *EqualOp:
+			if n.Left.Field != nil {
+				fields[*n.Left.Field] = true
+			}
+		case *ContainsOp:
+			if n.Left.Field != nil {
+				fields[*n.Left.Field] = true
+			}
+		case *ContainsPrefixOp:
+			if n.Left.Field != nil {
+				fields[*n.Left.Field] = true
+			}
+		case *ContainsSuffixOp:
+			if n.Left.Field != nil {
+				fields[*n.Left.Field] = true
+			}
+		}
+	})
+
+	response := make([]Field, 0, len(fields))
+	for field := range fields {
+		response = append(response, field)
+	}
+
+	sort.Slice(response, func(i, j int) bool {
+		return response[i].Name < response[j].Name
+	})
+
+	return response
 }
