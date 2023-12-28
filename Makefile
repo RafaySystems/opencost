@@ -21,5 +21,5 @@ go/bin:
 
 build:
 	docker buildx create --use
-	docker buildx build --platform=linux/amd64,linux/arm64 --push -t ${DEV_TAG} . --build-arg version=dev
+	docker buildx build --platform=linux/amd64,linux/arm64 --provenance=false  --push -t ${DEV_TAG} . --build-arg version=dev
 	@echo "$(DEV_TAG)"
