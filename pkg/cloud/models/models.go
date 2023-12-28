@@ -173,6 +173,8 @@ type CustomPricing struct {
 	AzureTenantID                string `json:"azureTenantID"`
 	AzureBillingRegion           string `json:"azureBillingRegion"`
 	AzureBillingAccount          string `json:"azureBillingAccount"`
+	AzureResourceGroupName       string `json:"azureResourceGroupName"`
+	AzureClusterName             string `json:"azureClusterName"`
 	AzureOfferDurableID          string `json:"azureOfferDurableID"`
 	AzureStorageSubscriptionID   string `json:"azureStorageSubscriptionID"`
 	AzureStorageAccount          string `json:"azureStorageAccount"`
