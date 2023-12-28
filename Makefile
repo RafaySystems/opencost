@@ -11,7 +11,7 @@ GO_LDFLAGS   := -X $(VPREFIX).Version=$(IMAGE_TAG) -X $(VPREFIX).GitCommit=$(GIT
 GO_FLAGS     := -ldflags "-extldflags \"-static\" -s -w $(GO_LDFLAGS)"
 
 IMG ?= rafay-opencost:latest
-TS := v1.4.0
+TS := v1.5.0
 DEV_USER ?= dev
 DEV_TAG := registry.dev.rafay-edge.net/${DEV_USER}/rafay-opencost:$(TS)
 
