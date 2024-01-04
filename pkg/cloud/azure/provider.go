@@ -937,7 +937,7 @@ func (az *Azure) DownloadPricingData() error {
 		defer errs.HandlePanic()
 
 		for {
-			log.Debugf("Azure AKS Tier Refresh scheduled in %.2f minutes.", AzureAksTierRefreshDuration.Minutes())
+			log.Infof("Azure AKS Tier Refresh scheduled in %.2f minutes.", AzureAksTierRefreshDuration.Minutes())
 			time.Sleep(AzureAksTierRefreshDuration)
 
 			err := az.refreshClusterManagementPricing(config)
@@ -948,25 +948,6 @@ func (az *Azure) DownloadPricingData() error {
 	}()
 
 	return nil
-}
-
-func getManagedCluster(ctx context.Context, managedClustersClient *armcontainerservice.ManagedClustersClient, resourceGroupName string, managedClustersName string) (*armcontainerservice.ManagedCluster, error) {
-	if resourceGroupName == "" || managedClustersName == "" {
-		return nil, fmt.Errorf("cluster name or resource group name not found")
-	}
-
-	getClusterResp, err := managedClustersClient.Get(
-		ctx,
-		resourceGroupName,
-		managedClustersName,
-		nil,
-	)
-	if err != nil {
-		log.Errorf("could not get managed cluster from azure: %s", err.Error())
-		return nil, err
-	}
-	log.Infof("SKU tier: %s Support Plan: %s", *getClusterResp.ManagedCluster.SKU.Tier, *getClusterResp.ManagedCluster.Properties.SupportPlan)
-	return &getClusterResp.ManagedCluster, nil
 }
 
 func convertMeterToPricings(info commerce.MeterInfo, regions map[string]string, baseCPUPrice string) (map[string]*AzurePricing, error) {
@@ -1716,6 +1697,24 @@ func (az *Azure) PricingSourceStatus() map[string]*models.PricingSource {
 	return sources
 }
 
+func getManagedCluster(ctx context.Context, managedClustersClient *armcontainerservice.ManagedClustersClient, resourceGroupName string, managedClustersName string) (*armcontainerservice.ManagedCluster, error) {
+	if resourceGroupName == "" || managedClustersName == "" {
+		return nil, fmt.Errorf("cluster name or resource group name not found")
+	}
+
+	getClusterResp, err := managedClustersClient.Get(
+		ctx,
+		resourceGroupName,
+		managedClustersName,
+		nil,
+	)
+	if err != nil {
+		log.Errorf("could not get managed cluster from azure: %s", err.Error())
+		return nil, err
+	}
+	return &getClusterResp.ManagedCluster, nil
+}
+
 func (az *Azure) refreshClusterManagementPricing(config *models.CustomPricing) error {
 	cred, err := azidentity.NewClientSecretCredential(config.AzureTenantID, config.AzureClientID, config.AzureClientSecret, nil)
 	if err != nil {
@@ -1737,17 +1736,17 @@ func (az *Azure) refreshClusterManagementPricing(config *models.CustomPricing) e
 		return nil
 	}
 
-	if managedCluster == nil || managedCluster.Properties == nil {
+	if managedCluster == nil || managedCluster.SKU == nil || managedCluster.SKU.Tier == nil {
 		log.Errorf("managed cluster info not present: %s", *managedCluster.ID)
 		return nil
 	}
 
-	if *managedCluster.Properties.SupportPlan == "AKSLongTermSupport" {
+	if *managedCluster.SKU.Tier == "Premium" {
 		az.clusterManagementPrice = 0.6
 	} else if *managedCluster.SKU.Tier == "Standard" {
 		az.clusterManagementPrice = 0.1
 	} else {
-		az.clusterManagementPrice = 0
+		az.clusterManagementPrice = 0.0
 	}
 
 	log.Infof("AKS cluster management price: %f", az.clusterManagementPrice)
