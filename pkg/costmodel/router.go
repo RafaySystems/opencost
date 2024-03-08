@@ -1744,6 +1744,7 @@ func Initialize(additionalConfigWatchers ...*watcher.ConfigMapWatcher) *Accesses
 	err = a.CloudProvider.DownloadPricingData()
 	if err != nil {
 		log.Infof("Failed to download pricing data: " + err.Error())
+		panic(err.Error())
 	}
 
 	// Warm the aggregate cache unless explicitly set to false
