@@ -489,6 +489,7 @@ func (cmme *CostModelMetricsEmitter) Start() bool {
 					cpu = 1 // Assume 1 CPU
 				}
 				ramCost, _ := strconv.ParseFloat(node.RAMCost, 64)
+				log.Warnf("Node -- %s, ramCost -- %s, %f", nodeName, node.RAMCost, ramCost)
 				if math.IsNaN(ramCost) || math.IsInf(ramCost, 0) {
 					ramCost, _ = strconv.ParseFloat(cfg.RAM, 64)
 					if math.IsNaN(ramCost) || math.IsInf(ramCost, 0) {
@@ -537,6 +538,8 @@ func (cmme *CostModelMetricsEmitter) Start() bool {
 				// don't record cpuCost, ramCost, or gpuCost in the case of wild outliers
 				// k8s api sometimes causes cost spikes as described here:
 				// https://github.com/opencost/opencost/issues/927
+				/* Removing outlier detection.
+				//https://github.com/opencost/opencost/pull/1251
 				cpuOutlierCutoff := outlierFactor * avgCosts.CpuCostAverage
 				if cpuCost < cpuOutlierCutoff {
 					cmme.CPUPriceRecorder.WithLabelValues(nodeName, nodeName, nodeType, nodeRegion, node.ProviderID, node.ArchType).Set(cpuCost)
@@ -559,6 +562,16 @@ func (cmme *CostModelMetricsEmitter) Start() bool {
 				} else {
 					log.Debugf("CPU and RAM outlier detected, not recording node %s total cost %f", nodeName, totalCost)
 				}
+				*/
+				// Adding the fix.
+				// https://github.com/opencost/opencost/pull/1251
+				cmme.CPUPriceRecorder.WithLabelValues(nodeName, nodeName, nodeType, nodeRegion, node.ProviderID, node.ArchType).Set(cpuCost)
+				avgCosts.CpuCostAverage = (avgCosts.CpuCostAverage*avgCosts.NumCpuDataPoints + cpuCost) / (avgCosts.NumCpuDataPoints + 1)
+				avgCosts.NumCpuDataPoints += 1
+				cmme.RAMPriceRecorder.WithLabelValues(nodeName, nodeName, nodeType, nodeRegion, node.ProviderID, node.ArchType).Set(ramCost)
+				avgCosts.RamCostAverage = (avgCosts.RamCostAverage*avgCosts.NumRamDataPoints + ramCost) / (avgCosts.NumRamDataPoints + 1)
+				avgCosts.NumRamDataPoints += 1
+				cmme.NodeTotalPriceRecorder.WithLabelValues(nodeName, nodeName, nodeType, nodeRegion, node.ProviderID, node.ArchType).Set(totalCost)
 
 				nodeCostAverages[labelKey] = avgCosts
 
