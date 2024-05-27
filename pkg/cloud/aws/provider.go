@@ -460,7 +460,7 @@ func (aws *AWS) GetAWSAccessKey() (*AWSAccessKey, error) {
 	if err != nil {
 		return nil, fmt.Errorf("could not retrieve AwsAthenaInfo %s", err)
 	}
-	err = aws.ConfigureAuthWith(config)
+	err = aws.ConfigureAuthWith(config, false)
 	if err != nil {
 		return nil, fmt.Errorf("error configuring Cloud Provider %s", err)
 	}
@@ -818,6 +818,7 @@ func (aws *AWS) SpotRefreshEnabled() bool {
 
 // DownloadPricingData fetches data from the AWS Pricing API
 func (aws *AWS) DownloadPricingData() error {
+	defer aws.Config.SetDownloadPricing(false)
 	aws.DownloadPricingDataLock.Lock()
 	defer aws.DownloadPricingDataLock.Unlock()
 	c, err := aws.Config.GetCustomPricingData()
@@ -837,7 +838,7 @@ func (aws *AWS) DownloadPricingData() error {
 	aws.ProjectID = c.ProjectID
 	aws.SpotDataRegion = c.SpotDataRegion
 
-	aws.ConfigureAuthWith(c) // load aws authentication from configuration or secret
+	aws.ConfigureAuthWith(c, true) // load aws authentication from configuration or secret
 
 	if len(aws.SpotDataBucket) != 0 && len(aws.ProjectID) == 0 {
 		log.Warnf("using SpotDataBucket \"%s\" without ProjectID will not end well", aws.SpotDataBucket)
@@ -1382,6 +1383,21 @@ func (aws *AWS) NodePricing(k models.Key) (*models.Node, models.PricingMetadata,
 	}
 
 	meta := models.PricingMetadata{}
+	if aws.Config.GetDownloadPricing() {
+		aws.DownloadPricingDataLock.RUnlock()
+		err := aws.DownloadPricingData()
+		aws.DownloadPricingDataLock.RLock()
+		if err != nil {
+			return &models.Node{
+				Cost:             aws.BaseCPUPrice,
+				BaseCPUPrice:     aws.BaseCPUPrice,
+				BaseRAMPrice:     aws.BaseRAMPrice,
+				BaseGPUPrice:     aws.BaseGPUPrice,
+				UsageType:        usageType,
+				UsesBaseCPUPrice: true,
+			}, meta, err
+		}
+	}
 
 	terms, ok := aws.Pricing[key]
 	if termsStr, err := json.Marshal(terms); err == nil {
@@ -1472,12 +1488,12 @@ func (aws *AWS) ConfigureAuth() error {
 	if err != nil {
 		log.Errorf("Error downloading default pricing data: %s", err.Error())
 	}
-	return aws.ConfigureAuthWith(c)
+	return aws.ConfigureAuthWith(c, false)
 }
 
 // updates the authentication to the latest values (via config or secret)
-func (aws *AWS) ConfigureAuthWith(config *models.CustomPricing) error {
-	accessKeyID, accessKeySecret := aws.getAWSAuth(false, config)
+func (aws *AWS) ConfigureAuthWith(config *models.CustomPricing, forceReload bool) error {
+	accessKeyID, accessKeySecret := aws.getAWSAuth(forceReload, config)
 	if accessKeyID != "" && accessKeySecret != "" { // credentials may exist on the actual AWS node-- if so, use those. If not, override with the service key
 		err := env.Set(ocenv.AWSAccessKeyIDEnvVar, accessKeyID)
 		if err != nil {
