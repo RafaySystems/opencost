@@ -20,8 +20,11 @@ const (
 	AlibabaAccessKeyIDEnvVar     = "ALIBABA_ACCESS_KEY_ID"
 	AlibabaAccessKeySecretEnvVar = "ALIBABA_SECRET_ACCESS_KEY"
 
-	AzureOfferIDEnvVar        = "AZURE_OFFER_ID"
-	AzureBillingAccountEnvVar = "AZURE_BILLING_ACCOUNT"
+	AzureOfferIDEnvVar                   = "AZURE_OFFER_ID"
+	AzureBillingAccountEnvVar            = "AZURE_BILLING_ACCOUNT"
+	AzureDownloadBillingDataToDiskEnvVar = "AZURE_DOWNLOAD_BILLING_DATA_TO_DISK"
+	AzureResourceGroupEnvVar             = "AZURE_RESOURCE_GROUP_NAME"
+	AzureClusterNameEnvVar               = "AZURE_CLUSTER_NAME"
 
 	KubecostNamespaceEnvVar        = "KUBECOST_NAMESPACE"
 	PodNameEnvVar                  = "POD_NAME"
@@ -311,6 +314,29 @@ func GetAzureOfferID() string {
 // price sheet API.
 func GetAzureBillingAccount() string {
 	return env.Get(AzureBillingAccountEnvVar, "")
+}
+
+// IsAzureDownloadBillingDataToDisk returns the environment variable value for
+// AzureDownloadBillingDataToDiskEnvVar which indicates whether the Azure
+// Billing Data should be held in memory or written to disk.
+func IsAzureDownloadBillingDataToDisk() bool {
+	return env.GetBool(AzureDownloadBillingDataToDiskEnvVar, true)
+}
+
+// GetAzureResourceGroupName returns the environment variable value for
+// AzureResourceGroupEnvVar which represents the Azure resource
+// group in which the cluster was created. This is being used to get
+// pricing tier of AKS
+func GetAzureResourceGroupName() string {
+	return Get(AzureResourceGroupEnvVar, "")
+}
+
+// GetAzureClusterName returns the environment variable value for
+// AzureClusterNameEnvVar which represents the Azure cluster
+// name. This is being used to get
+// pricing tier of AKS
+func GetAzureClusterName() string {
+	return Get(AzureClusterNameEnvVar, "")
 }
 
 // GetKubecostNamespace returns the environment variable value for KubecostNamespaceEnvVar which
