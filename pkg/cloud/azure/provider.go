@@ -798,11 +798,6 @@ func (az *Azure) DownloadPricingData() error {
 		return err
 	}
 
-	if config.AzureClientID == "" && config.AzureClientSecret == "" && config.AzureSubscriptionID == "" && config.AzureTenantID == "" {
-		log.Info("Using Default Azure Profile")
-		return nil
-	}
-
 	envBillingAccount := env.GetAzureBillingAccount()
 	if envBillingAccount != "" {
 		config.AzureBillingAccount = envBillingAccount
@@ -818,6 +813,11 @@ func (az *Azure) DownloadPricingData() error {
 	config.AzureClientID = clientID
 	config.AzureClientSecret = clientSecret
 	config.AzureTenantID = tenantID
+
+	if config.AzureClientID == "" && config.AzureClientSecret == "" && config.AzureSubscriptionID == "" && config.AzureTenantID == "" {
+		log.Info("Using Default Azure Profile")
+		return nil
+	}
 
 	var authorizer autorest.Authorizer
 
