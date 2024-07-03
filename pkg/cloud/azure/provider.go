@@ -866,6 +866,7 @@ func (az *Azure) DownloadPricingData() error {
 	}
 
 	regions, err := getRegions("compute", sClient, providersClient, config.AzureSubscriptionID)
+	log.Infof("Found following regions for the client: %s", fmt.Sprint(regions))
 	if err != nil {
 		log.Warnf("Error in pricing download regions from API")
 		az.rateCardPricingError = err
@@ -893,6 +894,7 @@ func (az *Azure) DownloadPricingData() error {
 
 	// If we've got a billing account set, kick off downloading the custom pricing data.
 	if config.AzureBillingAccount != "" {
+		log.Infof("Found Azure Billing Account ID for custom pricing: %s", config.AzureBillingAccount)
 		downloader := PriceSheetDownloader{
 			TenantID:       config.AzureTenantID,
 			ClientID:       config.AzureClientID,

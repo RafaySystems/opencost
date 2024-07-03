@@ -98,7 +98,8 @@ func (d PriceSheetDownloader) saveData(ctx context.Context, url, tempName string
 		return nil, fmt.Errorf("seeking to start of file: %w", err)
 	}
 
-	return &removeOnClose{File: out}, nil
+	//return &removeOnClose{File: out}, nil
+	return out, nil
 }
 
 type removeOnClose struct {
@@ -114,6 +115,7 @@ func (r *removeOnClose) Close() error {
 }
 
 func (d *PriceSheetDownloader) readPricesheet(ctx context.Context, data io.Reader) (map[string]*AzurePricing, error) {
+	log.Infof("Reading downloaded price sheet CSV")
 	// Avoid double-buffering.
 	buf, ok := (data).(*bufio.Reader)
 	if !ok {
