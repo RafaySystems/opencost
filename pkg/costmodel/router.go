@@ -1603,7 +1603,7 @@ func Initialize(additionalConfigWatchers ...*watcher.ConfigMapWatcher) *Accesses
 	}
 	k8sCache.Run()
 
-	cloudProviderKey := env.GetCloudProviderAPIKey()
+	cloudProviderKey := env.GetCloudProviderCreds()
 	cloudProvider, err := provider.NewProvider(k8sCache, cloudProviderKey, confManager)
 	if err != nil {
 		panic(err.Error())

@@ -43,6 +43,7 @@ const (
 	CSVPathEnvVar                  = "CSV_PATH"
 	ConfigPathEnvVar               = "CONFIG_PATH"
 	CloudProviderAPIKeyEnvVar      = "CLOUD_PROVIDER_API_KEY"
+	CloudProviderCredentialsEnvVar = "GOOGLE_APPLICATION_CREDENTIALS"
 	DisableAggregateCostModelCache = "DISABLE_AGGREGATE_COST_MODEL_CACHE"
 
 	EmitPodAnnotationsMetricEnvVar       = "EMIT_POD_ANNOTATIONS_METRIC"
@@ -343,7 +344,7 @@ func IsAzureDownloadBillingDataToDisk() bool {
 // group in which the cluster was created. This is being used to get
 // pricing tier of AKS
 func GetAzureResourceGroupName() string {
-	return Get(AzureResourceGroupEnvVar, "")
+	return env.Get(AzureResourceGroupEnvVar, "")
 }
 
 // GetAzureClusterName returns the environment variable value for
@@ -351,7 +352,7 @@ func GetAzureResourceGroupName() string {
 // name. This is being used to get
 // pricing tier of AKS
 func GetAzureClusterName() string {
-	return Get(AzureClusterNameEnvVar, "")
+	return env.Get(AzureClusterNameEnvVar, "")
 }
 
 // GetKubecostNamespace returns the environment variable value for KubecostNamespaceEnvVar which
@@ -461,6 +462,12 @@ func GetConfigPathWithDefault(defaultValue string) string {
 // the API key provided for the cloud provider.
 func GetCloudProviderAPIKey() string {
 	return env.Get(CloudProviderAPIKeyEnvVar, "")
+}
+
+// GetCloudProviderCreds returns the environment variable value for CloudProviderCredentialsEnvVar which represents
+// the Service Account JSON file provided for the cloud provider.
+func GetCloudProviderCreds() string {
+	return env.Get(CloudProviderCredentialsEnvVar, "")
 }
 
 // IsThanosEnabled returns the environment variable value for ThanosEnabledEnvVar which represents whether
