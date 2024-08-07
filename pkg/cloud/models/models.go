@@ -45,6 +45,7 @@ type Node struct {
 	VCPUCost         string                `json:"CPUHourlyCost"`
 	RAM              string                `json:"RAM"`
 	RAMBytes         string                `json:"RAMBytes"`
+	RAMMb            string                `json:"RAMMb"`
 	RAMCost          string                `json:"RAMGBHourlyCost"`
 	Storage          string                `json:"storage"`
 	StorageCost      string                `json:"storageHourlyCost"`
