@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"math"
-	"net/http"
 	"os"
 	"path"
 	"regexp"
@@ -31,6 +30,7 @@ import (
 	"cloud.google.com/go/bigquery"
 	"cloud.google.com/go/compute/metadata"
 	"golang.org/x/oauth2/google"
+	"google.golang.org/api/cloudbilling/v1"
 	"google.golang.org/api/compute/v1"
 	v1 "k8s.io/api/core/v1"
 )
@@ -572,15 +572,16 @@ func (gcp *GCP) findCostForDisk(disk *compute.Disk) (*float64, error) {
 
 // GCPPricing represents GCP pricing data for a SKU
 type GCPPricing struct {
-	Name                string           `json:"name"`
-	SKUID               string           `json:"skuId"`
-	Description         string           `json:"description"`
-	Category            *GCPResourceInfo `json:"category"`
-	ServiceRegions      []string         `json:"serviceRegions"`
-	PricingInfo         []*PricingInfo   `json:"pricingInfo"`
-	ServiceProviderName string           `json:"serviceProviderName"`
-	Node                *models.Node     `json:"node"`
-	PV                  *models.PV       `json:"pv"`
+	// Name                string           `json:"name"`
+	// SKUID               string           `json:"skuId"`
+	// Description         string           `json:"description"`
+	// Category            *GCPResourceInfo `json:"category"`
+	// ServiceRegions      []string         `json:"serviceRegions"`
+	// PricingInfo         []*PricingInfo   `json:"pricingInfo"`
+	// ServiceProviderName string           `json:"serviceProviderName"`
+	*cloudbilling.Sku
+	Node *models.Node `json:"node"`
+	PV   *models.PV   `json:"pv"`
 }
 
 // PricingInfo contains metadata about a cost.
@@ -622,364 +623,375 @@ type GCPResourceInfo struct {
 	UsageType          string `json:"usageType"`
 }
 
-func (gcp *GCP) parsePage(r io.Reader, inputKeys map[string]models.Key, pvKeys map[string]models.PVKey) (map[string]*GCPPricing, string, error) {
+func (gcp *GCP) parsePage(serviceSkusListCall *cloudbilling.ServicesSkusListCall, pageToken string, inputKeys map[string]models.Key, pvKeys map[string]models.PVKey) (map[string]*GCPPricing, string, error) {
 	gcpPricingList := make(map[string]*GCPPricing)
 	var nextPageToken string
-	dec := json.NewDecoder(r)
-	for {
-		t, err := dec.Token()
-		if err == io.EOF {
-			break
-		} else if err != nil {
-			return nil, "", fmt.Errorf("error parsing GCP pricing page: %s", err)
-		}
-		if t == "skus" {
-			_, err := dec.Token() // consumes [
-			if err != nil {
-				return nil, "", err
+	skusResponse, err := serviceSkusListCall.PageToken(pageToken).Do()
+	if err != nil {
+		return nil, "", fmt.Errorf("error parsing GCP pricing page: %s", err)
+	}
+	// dec := json.NewDecoder(r)
+	// for {
+	//  t, err := dec.Token()
+	//  if err == io.EOF {
+	//      break
+	//  } else if err != nil {
+	//      return nil, "", fmt.Errorf("error parsing GCP pricing page: %s", err)
+	//  }
+	//  if t == "skus" {
+	//      _, err := dec.Token() // consumes [
+	//      if err != nil {
+	//          return nil, "", err
+	//      }
+	for _, sku := range skusResponse.Skus {
+
+		product := &GCPPricing{Sku: sku}
+		// err := dec.Decode(&product)
+		// if err != nil {
+		//  return nil, "", err
+		// }
+
+		usageType := strings.ToLower(product.Category.UsageType)
+		instanceType := strings.ToLower(product.Category.ResourceGroup)
+
+		if instanceType == "ssd" && strings.Contains(product.Description, "SSD backed") && !strings.Contains(product.Description, "Regional") { // TODO: support regional
+			lastRateIndex := len(product.PricingInfo[0].PricingExpression.TieredRates) - 1
+			var nanos float64
+			if lastRateIndex > -1 && len(product.PricingInfo) > 0 {
+				nanos = float64(product.PricingInfo[0].PricingExpression.TieredRates[lastRateIndex].UnitPrice.Nanos)
+			} else {
+				continue
 			}
-			for dec.More() {
+			hourlyPrice := (nanos * math.Pow10(-9)) / 730
 
-				product := &GCPPricing{}
-				err := dec.Decode(&product)
-				if err != nil {
-					return nil, "", err
-				}
-
-				usageType := strings.ToLower(product.Category.UsageType)
-				instanceType := strings.ToLower(product.Category.ResourceGroup)
-
-				if instanceType == "ssd" && strings.Contains(product.Description, "SSD backed") && !strings.Contains(product.Description, "Regional") { // TODO: support regional
-					lastRateIndex := len(product.PricingInfo[0].PricingExpression.TieredRates) - 1
-					var nanos float64
-					if lastRateIndex > -1 && len(product.PricingInfo) > 0 {
-						nanos = product.PricingInfo[0].PricingExpression.TieredRates[lastRateIndex].UnitPrice.Nanos
-					} else {
-						continue
+			for _, sr := range product.ServiceRegions {
+				region := sr
+				candidateKey := region + "," + "ssd"
+				if _, ok := pvKeys[candidateKey]; ok {
+					product.PV = &models.PV{
+						Cost: strconv.FormatFloat(hourlyPrice, 'f', -1, 64),
 					}
-					hourlyPrice := (nanos * math.Pow10(-9)) / 730
-
-					for _, sr := range product.ServiceRegions {
-						region := sr
-						candidateKey := region + "," + "ssd"
-						if _, ok := pvKeys[candidateKey]; ok {
-							product.PV = &models.PV{
-								Cost: strconv.FormatFloat(hourlyPrice, 'f', -1, 64),
-							}
-							gcpPricingList[candidateKey] = product
-							continue
-						}
-					}
-					continue
-				} else if instanceType == "ssd" && strings.Contains(product.Description, "SSD backed") && strings.Contains(product.Description, "Regional") { // TODO: support regional
-					lastRateIndex := len(product.PricingInfo[0].PricingExpression.TieredRates) - 1
-					var nanos float64
-					if lastRateIndex > -1 && len(product.PricingInfo) > 0 {
-						nanos = product.PricingInfo[0].PricingExpression.TieredRates[lastRateIndex].UnitPrice.Nanos
-					} else {
-						continue
-					}
-					hourlyPrice := (nanos * math.Pow10(-9)) / 730
-
-					for _, sr := range product.ServiceRegions {
-						region := sr
-						candidateKey := region + "," + "ssd" + "," + "regional"
-						if _, ok := pvKeys[candidateKey]; ok {
-							product.PV = &models.PV{
-								Cost: strconv.FormatFloat(hourlyPrice, 'f', -1, 64),
-							}
-							gcpPricingList[candidateKey] = product
-							continue
-						}
-					}
-					continue
-				} else if instanceType == "pdstandard" && !strings.Contains(product.Description, "Regional") { // TODO: support regional
-					lastRateIndex := len(product.PricingInfo[0].PricingExpression.TieredRates) - 1
-					var nanos float64
-					if lastRateIndex > -1 && len(product.PricingInfo) > 0 {
-						nanos = product.PricingInfo[0].PricingExpression.TieredRates[lastRateIndex].UnitPrice.Nanos
-					} else {
-						continue
-					}
-					hourlyPrice := (nanos * math.Pow10(-9)) / 730
-					for _, sr := range product.ServiceRegions {
-						region := sr
-						candidateKey := region + "," + "pdstandard"
-						if _, ok := pvKeys[candidateKey]; ok {
-							product.PV = &models.PV{
-								Cost: strconv.FormatFloat(hourlyPrice, 'f', -1, 64),
-							}
-							gcpPricingList[candidateKey] = product
-							continue
-						}
-					}
-					continue
-				} else if instanceType == "pdstandard" && strings.Contains(product.Description, "Regional") { // TODO: support regional
-					lastRateIndex := len(product.PricingInfo[0].PricingExpression.TieredRates) - 1
-					var nanos float64
-					if lastRateIndex > -1 && len(product.PricingInfo) > 0 {
-						nanos = product.PricingInfo[0].PricingExpression.TieredRates[lastRateIndex].UnitPrice.Nanos
-					} else {
-						continue
-					}
-					hourlyPrice := (nanos * math.Pow10(-9)) / 730
-					for _, sr := range product.ServiceRegions {
-						region := sr
-						candidateKey := region + "," + "pdstandard" + "," + "regional"
-						if _, ok := pvKeys[candidateKey]; ok {
-							product.PV = &models.PV{
-								Cost: strconv.FormatFloat(hourlyPrice, 'f', -1, 64),
-							}
-							gcpPricingList[candidateKey] = product
-							continue
-						}
-					}
+					gcpPricingList[candidateKey] = product
 					continue
 				}
+			}
+			continue
+		} else if instanceType == "ssd" && strings.Contains(product.Description, "SSD backed") && strings.Contains(product.Description, "Regional") { // TODO: support regional
+			lastRateIndex := len(product.PricingInfo[0].PricingExpression.TieredRates) - 1
+			var nanos float64
+			if lastRateIndex > -1 && len(product.PricingInfo) > 0 {
+				nanos = float64(product.PricingInfo[0].PricingExpression.TieredRates[lastRateIndex].UnitPrice.Nanos)
+			} else {
+				continue
+			}
+			hourlyPrice := (nanos * math.Pow10(-9)) / 730
 
-				if (instanceType == "ram" || instanceType == "cpu") && strings.Contains(strings.ToUpper(product.Description), "CUSTOM") {
-					instanceType = "custom"
-				}
-
-				if (instanceType == "ram" || instanceType == "cpu") && strings.Contains(strings.ToUpper(product.Description), "N2") && !strings.Contains(strings.ToUpper(product.Description), "PREMIUM") {
-					if (instanceType == "ram" || instanceType == "cpu") && strings.Contains(strings.ToUpper(product.Description), "N2D AMD") {
-						instanceType = "n2dstandard"
-					} else {
-						instanceType = "n2standard"
+			for _, sr := range product.ServiceRegions {
+				region := sr
+				candidateKey := region + "," + "ssd" + "," + "regional"
+				if _, ok := pvKeys[candidateKey]; ok {
+					product.PV = &models.PV{
+						Cost: strconv.FormatFloat(hourlyPrice, 'f', -1, 64),
 					}
+					gcpPricingList[candidateKey] = product
+					continue
 				}
-
-				if (instanceType == "ram" || instanceType == "cpu") && strings.Contains(strings.ToUpper(product.Description), "A2 INSTANCE") {
-					instanceType = "a2"
-				}
-
-				if (instanceType == "ram" || instanceType == "cpu") && strings.Contains(strings.ToUpper(product.Description), "COMPUTE OPTIMIZED") {
-					instanceType = "c2standard"
-				}
-
-				if (instanceType == "ram" || instanceType == "cpu") && strings.Contains(strings.ToUpper(product.Description), "E2 INSTANCE") {
-					instanceType = "e2"
-				}
-				partialCPUMap := make(map[string]float64)
-				partialCPUMap["e2micro"] = 0.25
-				partialCPUMap["e2small"] = 0.5
-				partialCPUMap["e2medium"] = 1
-
-				if (instanceType == "ram" || instanceType == "cpu") && strings.Contains(strings.ToUpper(product.Description), "T2D AMD") {
-					instanceType = "t2dstandard"
-				}
-				if (instanceType == "ram" || instanceType == "cpu") && strings.Contains(strings.ToUpper(product.Description), "T2A ARM") {
-					instanceType = "t2astandard"
-				}
-
-				var gpuType string
-				for matchnum, group := range nvidiaTeslaGPURegex.FindStringSubmatch(product.Description) {
-					if matchnum == 1 {
-						gpuType = strings.ToLower(strings.Join(strings.Split(group, " "), "-"))
-						log.Debugf("GCP Billing API: GPU type found: '%s'", gpuType)
+			}
+			continue
+		} else if instanceType == "pdstandard" && !strings.Contains(product.Description, "Regional") { // TODO: support regional
+			lastRateIndex := len(product.PricingInfo[0].PricingExpression.TieredRates) - 1
+			var nanos float64
+			if lastRateIndex > -1 && len(product.PricingInfo) > 0 {
+				nanos = float64(product.PricingInfo[0].PricingExpression.TieredRates[lastRateIndex].UnitPrice.Nanos)
+			} else {
+				continue
+			}
+			hourlyPrice := (nanos * math.Pow10(-9)) / 730
+			for _, sr := range product.ServiceRegions {
+				region := sr
+				candidateKey := region + "," + "pdstandard"
+				if _, ok := pvKeys[candidateKey]; ok {
+					product.PV = &models.PV{
+						Cost: strconv.FormatFloat(hourlyPrice, 'f', -1, 64),
 					}
+					gcpPricingList[candidateKey] = product
+					continue
+				}
+			}
+			continue
+		} else if instanceType == "pdstandard" && strings.Contains(product.Description, "Regional") { // TODO: support regional
+			lastRateIndex := len(product.PricingInfo[0].PricingExpression.TieredRates) - 1
+			var nanos float64
+			if lastRateIndex > -1 && len(product.PricingInfo) > 0 {
+				nanos = float64(product.PricingInfo[0].PricingExpression.TieredRates[lastRateIndex].UnitPrice.Nanos)
+			} else {
+				continue
+			}
+			hourlyPrice := (nanos * math.Pow10(-9)) / 730
+			for _, sr := range product.ServiceRegions {
+				region := sr
+				candidateKey := region + "," + "pdstandard" + "," + "regional"
+				if _, ok := pvKeys[candidateKey]; ok {
+					product.PV = &models.PV{
+						Cost: strconv.FormatFloat(hourlyPrice, 'f', -1, 64),
+					}
+					gcpPricingList[candidateKey] = product
+					continue
+				}
+			}
+			continue
+		}
+
+		if (instanceType == "ram" || instanceType == "cpu") && strings.Contains(strings.ToUpper(product.Description), "CUSTOM") {
+			instanceType = "custom"
+		}
+
+		if (instanceType == "ram" || instanceType == "cpu") && strings.Contains(strings.ToUpper(product.Description), "N2") && !strings.Contains(strings.ToUpper(product.Description), "PREMIUM") {
+			if (instanceType == "ram" || instanceType == "cpu") && strings.Contains(strings.ToUpper(product.Description), "N2D AMD") {
+				instanceType = "n2d"
+			} else {
+				instanceType = "n2"
+			}
+		}
+
+		if (instanceType == "ram" || instanceType == "cpu") && strings.Contains(strings.ToUpper(product.Description), "A2 INSTANCE") {
+			instanceType = "a2"
+		}
+
+		if (instanceType == "ram" || instanceType == "cpu") && strings.Contains(strings.ToUpper(product.Description), "COMPUTE OPTIMIZED") {
+			instanceType = "c2standard"
+		}
+
+		if (instanceType == "ram" || instanceType == "cpu") && strings.Contains(strings.ToUpper(product.Description), "E2 INSTANCE") {
+			instanceType = "e2"
+		}
+		partialCPUMap := make(map[string]float64)
+		partialCPUMap["e2micro"] = 0.25
+		partialCPUMap["e2small"] = 0.5
+		partialCPUMap["e2medium"] = 1
+
+		if (instanceType == "ram" || instanceType == "cpu") && strings.Contains(strings.ToUpper(product.Description), "T2D AMD") {
+			instanceType = "t2dstandard"
+		}
+		if (instanceType == "ram" || instanceType == "cpu") && strings.Contains(strings.ToUpper(product.Description), "T2A ARM") {
+			instanceType = "t2astandard"
+		}
+
+		var gpuType string
+		for matchnum, group := range nvidiaTeslaGPURegex.FindStringSubmatch(product.Description) {
+			if matchnum == 1 {
+				gpuType = strings.ToLower(strings.Join(strings.Split(group, " "), "-"))
+				log.Debugf("GCP Billing API: GPU type found: '%s'", gpuType)
+			}
+		}
+
+		// If a 'Nvidia Tesla' is not found, try 'Nvidia'
+		if gpuType == "" {
+			for matchnum, group := range nvidiaGPURegex.FindStringSubmatch(product.Description) {
+				if matchnum == 1 {
+					gpuType = strings.ToLower(strings.Join(strings.Split(group, " "), "-"))
+					log.Debugf("GCP Billing API: GPU type found: '%s'", gpuType)
+				}
+			}
+		}
+
+		candidateKeys := []string{}
+		if gcp.ValidPricingKeys == nil {
+			gcp.ValidPricingKeys = make(map[string]bool)
+		}
+
+		for _, region := range product.ServiceRegions {
+			switch instanceType {
+			case "e2":
+				candidateKeys = append(candidateKeys, region+","+"e2micro"+","+usageType)
+				candidateKeys = append(candidateKeys, region+","+"e2small"+","+usageType)
+				candidateKeys = append(candidateKeys, region+","+"e2medium"+","+usageType)
+				candidateKeys = append(candidateKeys, region+","+"e2standard"+","+usageType)
+				candidateKeys = append(candidateKeys, region+","+"e2custom"+","+usageType)
+			case "a2":
+				candidateKeys = append(candidateKeys, region+","+"a2highgpu"+","+usageType)
+				candidateKeys = append(candidateKeys, region+","+"a2megagpu"+","+usageType)
+				candidateKeys = append(candidateKeys, region+","+"a2ultragpu"+","+usageType)
+			case "n2":
+				candidateKeys = append(candidateKeys, region+","+"n2standard"+","+usageType)
+				candidateKeys = append(candidateKeys, region+","+"n2custom"+","+usageType)
+			case "n2d":
+				candidateKeys = append(candidateKeys, region+","+"n2dstandard"+","+usageType)
+				candidateKeys = append(candidateKeys, region+","+"n2dcustom"+","+usageType)
+			// n1 custom types not working as expected, need to be implemented
+			default:
+				candidateKey := region + "," + instanceType + "," + usageType
+				candidateKeys = append(candidateKeys, candidateKey)
+			}
+		}
+
+		for _, candidateKey := range candidateKeys {
+			instanceType = strings.Split(candidateKey, ",")[1] // we may have overridden this while generating candidate keys
+			region := strings.Split(candidateKey, ",")[0]
+			candidateKeyGPU := candidateKey + ",gpu"
+			gcp.ValidPricingKeys[candidateKey] = true
+			gcp.ValidPricingKeys[candidateKeyGPU] = true
+			if gpuType != "" {
+				lastRateIndex := len(product.PricingInfo[0].PricingExpression.TieredRates) - 1
+				var nanos float64
+				var unitsBaseCurrency int64
+				if lastRateIndex > -1 && len(product.PricingInfo) > 0 {
+					nanos = float64(product.PricingInfo[0].PricingExpression.TieredRates[lastRateIndex].UnitPrice.Nanos)
+					unitsBaseCurrency = product.PricingInfo[0].PricingExpression.TieredRates[lastRateIndex].UnitPrice.Units
+					// if err != nil {
+					//  return nil, "", fmt.Errorf("error parsing base unit price for gpu: %w", err)
+					// }
+				} else {
+					continue
 				}
 
-				// If a 'Nvidia Tesla' is not found, try 'Nvidia'
-				if gpuType == "" {
-					for matchnum, group := range nvidiaGPURegex.FindStringSubmatch(product.Description) {
-						if matchnum == 1 {
-							gpuType = strings.ToLower(strings.Join(strings.Split(group, " "), "-"))
-							log.Debugf("GCP Billing API: GPU type found: '%s'", gpuType)
+				// as per https://cloud.google.com/billing/v1/how-tos/catalog-api
+				// the hourly price is the whole currency price + the fractional currency price
+				hourlyPrice := (nanos * math.Pow10(-9)) + float64(unitsBaseCurrency)
+
+				// GPUs with an hourly price of 0 are reserved versions of GPUs
+				// (E.g., SKU "2013-37B4-22EA")
+				// and are excluded from cost computations
+				if hourlyPrice == 0 {
+					log.Debugf("GCP Billing API: excluding reserved GPU SKU #%s", product.SkuId)
+					continue
+				}
+
+				for k, key := range inputKeys {
+					if key.GPUType() == gpuType+","+usageType {
+						if region == strings.Split(k, ",")[0] {
+							matchedKey := key.Features()
+							log.Debugf("GCP Billing API: matched GPU to node: %s: %s", matchedKey, product.Description)
+							if pl, ok := gcpPricingList[matchedKey]; ok {
+								pl.Node.GPUName = gpuType
+								pl.Node.GPUCost = strconv.FormatFloat(hourlyPrice, 'f', -1, 64)
+								pl.Node.GPU = "1"
+							} else {
+								product.Node = &models.Node{
+									GPUName: gpuType,
+									GPUCost: strconv.FormatFloat(hourlyPrice, 'f', -1, 64),
+									GPU:     "1",
+								}
+								gcpPricingList[matchedKey] = product
+							}
 						}
 					}
 				}
-
-				candidateKeys := []string{}
-				if gcp.ValidPricingKeys == nil {
-					gcp.ValidPricingKeys = make(map[string]bool)
-				}
-
-				for _, region := range product.ServiceRegions {
-					switch instanceType {
-					case "e2":
-						candidateKeys = append(candidateKeys, region+","+"e2micro"+","+usageType)
-						candidateKeys = append(candidateKeys, region+","+"e2small"+","+usageType)
-						candidateKeys = append(candidateKeys, region+","+"e2medium"+","+usageType)
-						candidateKeys = append(candidateKeys, region+","+"e2standard"+","+usageType)
-						candidateKeys = append(candidateKeys, region+","+"e2custom"+","+usageType)
-					case "a2":
-						candidateKeys = append(candidateKeys, region+","+"a2highgpu"+","+usageType)
-						candidateKeys = append(candidateKeys, region+","+"a2megagpu"+","+usageType)
-						candidateKeys = append(candidateKeys, region+","+"a2ultragpu"+","+usageType)
-					default:
-						candidateKey := region + "," + instanceType + "," + usageType
-						candidateKeys = append(candidateKeys, candidateKey)
-					}
-				}
-
-				for _, candidateKey := range candidateKeys {
-					instanceType = strings.Split(candidateKey, ",")[1] // we may have overridden this while generating candidate keys
-					region := strings.Split(candidateKey, ",")[0]
-					candidateKeyGPU := candidateKey + ",gpu"
-					gcp.ValidPricingKeys[candidateKey] = true
-					gcp.ValidPricingKeys[candidateKeyGPU] = true
-					if gpuType != "" {
+			} else {
+				_, ok := inputKeys[candidateKey]
+				_, ok2 := inputKeys[candidateKeyGPU]
+				if ok || ok2 {
+					var nanos float64
+					var unitsBaseCurrency int64
+					if len(product.PricingInfo) > 0 {
 						lastRateIndex := len(product.PricingInfo[0].PricingExpression.TieredRates) - 1
-						var nanos float64
-						var unitsBaseCurrency int
-						if lastRateIndex > -1 && len(product.PricingInfo) > 0 {
-							nanos = product.PricingInfo[0].PricingExpression.TieredRates[lastRateIndex].UnitPrice.Nanos
-							unitsBaseCurrency, err = strconv.Atoi(product.PricingInfo[0].PricingExpression.TieredRates[lastRateIndex].UnitPrice.Units)
-							if err != nil {
-								return nil, "", fmt.Errorf("error parsing base unit price for gpu: %w", err)
-							}
+						if lastRateIndex >= 0 {
+							nanos = float64(product.PricingInfo[0].PricingExpression.TieredRates[lastRateIndex].UnitPrice.Nanos)
+							unitsBaseCurrency = product.PricingInfo[0].PricingExpression.TieredRates[lastRateIndex].UnitPrice.Units
+							// if err != nil {
+							//  return nil, "", fmt.Errorf("error parsing base unit price for instance: %w", err)
+							// }
 						} else {
 							continue
 						}
+					} else {
+						continue
+					}
 
-						// as per https://cloud.google.com/billing/v1/how-tos/catalog-api
-						// the hourly price is the whole currency price + the fractional currency price
-						hourlyPrice := (nanos * math.Pow10(-9)) + float64(unitsBaseCurrency)
+					// as per https://cloud.google.com/billing/v1/how-tos/catalog-api
+					// the hourly price is the whole currency price + the fractional currency price
+					hourlyPrice := (nanos * math.Pow10(-9)) + float64(unitsBaseCurrency)
 
-						// GPUs with an hourly price of 0 are reserved versions of GPUs
-						// (E.g., SKU "2013-37B4-22EA")
-						// and are excluded from cost computations
-						if hourlyPrice == 0 {
-							log.Debugf("GCP Billing API: excluding reserved GPU SKU #%s", product.SKUID)
-							continue
+					if hourlyPrice == 0 {
+						continue
+					} else if strings.Contains(strings.ToUpper(product.Description), "RAM") {
+						if instanceType == "custom" {
+							log.Debugf("GCP Billing API: RAM custom sku '%s'", product.Name)
 						}
-
-						for k, key := range inputKeys {
-							if key.GPUType() == gpuType+","+usageType {
-								if region == strings.Split(k, ",")[0] {
-									matchedKey := key.Features()
-									log.Debugf("GCP Billing API: matched GPU to node: %s: %s", matchedKey, product.Description)
-									if pl, ok := gcpPricingList[matchedKey]; ok {
-										pl.Node.GPUName = gpuType
-										pl.Node.GPUCost = strconv.FormatFloat(hourlyPrice, 'f', -1, 64)
-										pl.Node.GPU = "1"
-									} else {
-										product.Node = &models.Node{
-											GPUName: gpuType,
-											GPUCost: strconv.FormatFloat(hourlyPrice, 'f', -1, 64),
-											GPU:     "1",
-										}
-										gcpPricingList[matchedKey] = product
-									}
-								}
+						if _, ok := gcpPricingList[candidateKey]; ok {
+							log.Debugf("GCP Billing API: key '%s': RAM price: %f", candidateKey, hourlyPrice)
+							gcpPricingList[candidateKey].Node.RAMCost = strconv.FormatFloat(hourlyPrice, 'f', -1, 64)
+						} else {
+							log.Debugf("GCP Billing API: key '%s': RAM price: %f", candidateKey, hourlyPrice)
+							pricing := &GCPPricing{Sku: sku}
+							pricing.Node = &models.Node{
+								RAMCost: strconv.FormatFloat(hourlyPrice, 'f', -1, 64),
 							}
+							partialCPU, pcok := partialCPUMap[instanceType]
+							if pcok {
+								pricing.Node.VCPU = fmt.Sprintf("%f", partialCPU)
+							}
+							pricing.Node.UsageType = usageType
+							gcpPricingList[candidateKey] = pricing
+						}
+						if _, ok := gcpPricingList[candidateKeyGPU]; ok {
+							log.Debugf("GCP Billing API: key '%s': RAM price: %f", candidateKeyGPU, hourlyPrice)
+							gcpPricingList[candidateKeyGPU].Node.RAMCost = strconv.FormatFloat(hourlyPrice, 'f', -1, 64)
+						} else {
+							log.Debugf("GCP Billing API: key '%s': RAM price: %f", candidateKeyGPU, hourlyPrice)
+							pricing := &GCPPricing{Sku: sku}
+							pricing.Node = &models.Node{
+								RAMCost: strconv.FormatFloat(hourlyPrice, 'f', -1, 64),
+							}
+							partialCPU, pcok := partialCPUMap[instanceType]
+							if pcok {
+								pricing.Node.VCPU = fmt.Sprintf("%f", partialCPU)
+							}
+							pricing.Node.UsageType = usageType
+							gcpPricingList[candidateKeyGPU] = pricing
 						}
 					} else {
-						_, ok := inputKeys[candidateKey]
-						_, ok2 := inputKeys[candidateKeyGPU]
-						if ok || ok2 {
-							var nanos float64
-							var unitsBaseCurrency int
-							if len(product.PricingInfo) > 0 {
-								lastRateIndex := len(product.PricingInfo[0].PricingExpression.TieredRates) - 1
-								if lastRateIndex >= 0 {
-									nanos = product.PricingInfo[0].PricingExpression.TieredRates[lastRateIndex].UnitPrice.Nanos
-									unitsBaseCurrency, err = strconv.Atoi(product.PricingInfo[0].PricingExpression.TieredRates[lastRateIndex].UnitPrice.Units)
-									if err != nil {
-										return nil, "", fmt.Errorf("error parsing base unit price for instance: %w", err)
-									}
-								} else {
-									continue
-								}
-							} else {
-								continue
+						if _, ok := gcpPricingList[candidateKey]; ok {
+							log.Debugf("GCP Billing API: key '%s': CPU price: %f", candidateKey, hourlyPrice)
+							gcpPricingList[candidateKey].Node.VCPUCost = strconv.FormatFloat(hourlyPrice, 'f', -1, 64)
+						} else {
+							log.Debugf("GCP Billing API: key '%s': CPU price: %f", candidateKey, hourlyPrice)
+							pricing := &GCPPricing{Sku: sku}
+							pricing.Node = &models.Node{
+								VCPUCost: strconv.FormatFloat(hourlyPrice, 'f', -1, 64),
 							}
-
-							// as per https://cloud.google.com/billing/v1/how-tos/catalog-api
-							// the hourly price is the whole currency price + the fractional currency price
-							hourlyPrice := (nanos * math.Pow10(-9)) + float64(unitsBaseCurrency)
-
-							if hourlyPrice == 0 {
-								continue
-							} else if strings.Contains(strings.ToUpper(product.Description), "RAM") {
-								if instanceType == "custom" {
-									log.Debugf("GCP Billing API: RAM custom sku '%s'", product.Name)
-								}
-								if _, ok := gcpPricingList[candidateKey]; ok {
-									log.Debugf("GCP Billing API: key '%s': RAM price: %f", candidateKey, hourlyPrice)
-									gcpPricingList[candidateKey].Node.RAMCost = strconv.FormatFloat(hourlyPrice, 'f', -1, 64)
-								} else {
-									log.Debugf("GCP Billing API: key '%s': RAM price: %f", candidateKey, hourlyPrice)
-									pricing := &GCPPricing{}
-									pricing.Node = &models.Node{
-										RAMCost: strconv.FormatFloat(hourlyPrice, 'f', -1, 64),
-									}
-									partialCPU, pcok := partialCPUMap[instanceType]
-									if pcok {
-										pricing.Node.VCPU = fmt.Sprintf("%f", partialCPU)
-									}
-									pricing.Node.UsageType = usageType
-									gcpPricingList[candidateKey] = pricing
-								}
-								if _, ok := gcpPricingList[candidateKeyGPU]; ok {
-									log.Debugf("GCP Billing API: key '%s': RAM price: %f", candidateKeyGPU, hourlyPrice)
-									gcpPricingList[candidateKeyGPU].Node.RAMCost = strconv.FormatFloat(hourlyPrice, 'f', -1, 64)
-								} else {
-									log.Debugf("GCP Billing API: key '%s': RAM price: %f", candidateKeyGPU, hourlyPrice)
-									pricing := &GCPPricing{}
-									pricing.Node = &models.Node{
-										RAMCost: strconv.FormatFloat(hourlyPrice, 'f', -1, 64),
-									}
-									partialCPU, pcok := partialCPUMap[instanceType]
-									if pcok {
-										pricing.Node.VCPU = fmt.Sprintf("%f", partialCPU)
-									}
-									pricing.Node.UsageType = usageType
-									gcpPricingList[candidateKeyGPU] = pricing
-								}
-							} else {
-								if _, ok := gcpPricingList[candidateKey]; ok {
-									log.Debugf("GCP Billing API: key '%s': CPU price: %f", candidateKey, hourlyPrice)
-									gcpPricingList[candidateKey].Node.VCPUCost = strconv.FormatFloat(hourlyPrice, 'f', -1, 64)
-								} else {
-									log.Debugf("GCP Billing API: key '%s': CPU price: %f", candidateKey, hourlyPrice)
-									pricing := &GCPPricing{}
-									pricing.Node = &models.Node{
-										VCPUCost: strconv.FormatFloat(hourlyPrice, 'f', -1, 64),
-									}
-									partialCPU, pcok := partialCPUMap[instanceType]
-									if pcok {
-										pricing.Node.VCPU = fmt.Sprintf("%f", partialCPU)
-									}
-									pricing.Node.UsageType = usageType
-									gcpPricingList[candidateKey] = pricing
-								}
-								if _, ok := gcpPricingList[candidateKeyGPU]; ok {
-									log.Debugf("GCP Billing API: key '%s': CPU price: %f", candidateKeyGPU, hourlyPrice)
-									gcpPricingList[candidateKeyGPU].Node.VCPUCost = strconv.FormatFloat(hourlyPrice, 'f', -1, 64)
-								} else {
-									log.Debugf("GCP Billing API: key '%s': CPU price: %f", candidateKeyGPU, hourlyPrice)
-									pricing := &GCPPricing{}
-									pricing.Node = &models.Node{
-										VCPUCost: strconv.FormatFloat(hourlyPrice, 'f', -1, 64),
-									}
-									partialCPU, pcok := partialCPUMap[instanceType]
-									if pcok {
-										pricing.Node.VCPU = fmt.Sprintf("%f", partialCPU)
-									}
-									pricing.Node.UsageType = usageType
-									gcpPricingList[candidateKeyGPU] = pricing
-								}
+							partialCPU, pcok := partialCPUMap[instanceType]
+							if pcok {
+								pricing.Node.VCPU = fmt.Sprintf("%f", partialCPU)
 							}
+							pricing.Node.UsageType = usageType
+							gcpPricingList[candidateKey] = pricing
+						}
+						if _, ok := gcpPricingList[candidateKeyGPU]; ok {
+							log.Debugf("GCP Billing API: key '%s': CPU price: %f", candidateKeyGPU, hourlyPrice)
+							gcpPricingList[candidateKeyGPU].Node.VCPUCost = strconv.FormatFloat(hourlyPrice, 'f', -1, 64)
+						} else {
+							log.Debugf("GCP Billing API: key '%s': CPU price: %f", candidateKeyGPU, hourlyPrice)
+							pricing := &GCPPricing{Sku: sku}
+							pricing.Node = &models.Node{
+								VCPUCost: strconv.FormatFloat(hourlyPrice, 'f', -1, 64),
+							}
+							partialCPU, pcok := partialCPUMap[instanceType]
+							if pcok {
+								pricing.Node.VCPU = fmt.Sprintf("%f", partialCPU)
+							}
+							pricing.Node.UsageType = usageType
+							gcpPricingList[candidateKeyGPU] = pricing
 						}
 					}
 				}
 			}
 		}
-		if t == "nextPageToken" {
-			pageToken, err := dec.Token()
-			if err != nil {
-				log.Errorf("Error parsing nextpage token: " + err.Error())
-				return nil, "", err
-			}
-			if pageToken.(string) != "" {
-				nextPageToken = pageToken.(string)
-			} else {
-				nextPageToken = "done"
-			}
-		}
 	}
+	// }
+	// if t == "nextPageToken" {
+	// pageToken, err := dec.Token()
+	// if err != nil {
+	// log.Errorf("Error parsing nextpage token: " + err.Error())
+	// return nil, "", err
+	// }
+	if skusResponse.NextPageToken != "" {
+		nextPageToken = skusResponse.NextPageToken
+	} else {
+		nextPageToken = "done"
+	}
+	// }
+	// }
 	return gcpPricingList, nextPageToken, nil
 }
 
@@ -994,20 +1006,27 @@ func (gcp *GCP) parsePages(inputKeys map[string]models.Key, pvKeys map[string]mo
 		return nil, err
 	}
 
-	url := gcp.getBillingAPIURL(gcp.APIKey, c.CurrencyCode)
+	// url := gcp.getBillingAPIURL(gcp.APIKey, c.CurrencyCode)
+	cloudBillingService, err := cloudbilling.NewService(context.Background())
+	if err != nil {
+		return nil, err
+	}
+
+	serviceSkusListCall := cloudBillingService.Services.Skus.List("services/6F81-5844-456A").CurrencyCode(c.CurrencyCode)
 
 	var parsePagesHelper func(string) error
 	parsePagesHelper = func(pageToken string) error {
 		if pageToken == "done" {
 			return nil
-		} else if pageToken != "" {
-			url = url + "&pageToken=" + pageToken
 		}
-		resp, err := http.Get(url)
-		if err != nil {
-			return err
-		}
-		page, token, err := gcp.parsePage(resp.Body, inputKeys, pvKeys)
+		// } else if pageToken != "" {
+		//  url = url + "&pageToken=" + pageToken
+		// }
+		// resp, err := http.Get(url)
+		// if err != nil {
+		//  return err
+		// }
+		page, token, err := gcp.parsePage(serviceSkusListCall, pageToken, inputKeys, pvKeys)
 		if err != nil {
 			return err
 		}
