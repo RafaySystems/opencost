@@ -982,14 +982,6 @@ func (cm *CostModel) GetPricingSourceCounts() (*costAnalyzerCloud.PricingMatchMe
 	}
 }
 
-func getMachineTypeFromMap(machineType string, machineTypeMemoryMap map[string]int64) (int64, bool) {
-	memory, exists := machineTypeMemoryMap[machineType]
-	if !exists {
-		return 0, exists
-	}
-	return memory, exists
-}
-
 func getMachineType(projectID, zone, machineType string, ctx context.Context) (int64, error) {
 	computeService, err := compute.NewService(ctx)
 	if err != nil {
@@ -1023,13 +1015,13 @@ func GetMemorySize(projectID, zone, machineType string, machineTypeMemoryMap map
 
 			memoryMb, err = getMachineType(projectID, zone, machineType, ctx)
 			if err != nil {
-				log.Warnf("Failed to get machine type: %s  err: %s",machineType, err.Error())
+				log.Warnf("Failed to get memoryinfo machine type: %s  err: %s",machineType, err.Error())
 				return 0, err
 			}
 		}
 		
 	} else {
-		memoryMb, exists = getMachineTypeFromMap(machineType, machineTypeMemoryMap)
+		memoryMb, exists = machineTypeMemoryMap[machineType]
 
 		if !exists {
 
@@ -1039,6 +1031,7 @@ func GetMemorySize(projectID, zone, machineType string, machineTypeMemoryMap map
 				log.Warnf("Failed to get machine type: %s  err: %s",machineType, err.Error())
 				return 0, err
 			}
+			machineTypeMemoryMap[machineType] = memoryMb
 		}
 
 	}
@@ -1049,10 +1042,6 @@ func GetComputeMachineType(projectID, zone string) (map[string]int64, error) {
 	// Creating the Compute Service client
 
 	ctx := context.Background()
-	// client, _, err := transport.NewHTTPClient(ctx, option.WithScopes(compute.ComputeScope))
-	// if err != nil {
-	// 	log.Warnf("Failed to create compute HTTP client: %s", err.Error())
-	// }
 
 	computeService, err := compute.NewService(ctx)
 	// computeService, err := compute.NewService(ctx, option.WithHTTPClient(client))
@@ -1083,15 +1072,15 @@ func (cm *CostModel) GetNodeCost(cp costAnalyzerCloud.Provider) (map[string]*cos
 	}
 
 	nodeList := cm.Cache.GetAllNodes()
-	projectName, err := cp.ClusterInfo()
+	clusterInfo, err := cp.ClusterInfo()
 	if err != nil {
 		log.Warnf("error getting cluster info err: %s  ", err.Error())
 
 	}
 	zone, _ := util.GetZone(nodeList[0].Labels)
-	if projectName["provider"] == "GCP" {
+	if clusterInfo["provider"] == "GCP" {
 		if len(cm.MemorySizeInfo) == 0 {
-			cm.MemorySizeInfo, err = GetComputeMachineType(projectName["project"], zone)
+			cm.MemorySizeInfo, err = GetComputeMachineType(clusterInfo["project"], zone)
 			if err != nil {
 				log.Warnf("error in getcomputemachinetype    call err %s  ", err.Error())
 			}
@@ -1183,9 +1172,9 @@ func (cm *CostModel) GetNodeCost(cp costAnalyzerCloud.Provider) (map[string]*cos
 		}
 
 		newCnode.RAMBytes = fmt.Sprintf("%f", ram)
-		if projectName["provider"] == "GCP" {
+		if clusterInfo["provider"] == "GCP" {
 
-			ramMb, err = GetMemorySize(projectName["project"], zone, newCnode.InstanceType, cm.MemorySizeInfo)
+			ramMb, err = GetMemorySize(clusterInfo["project"], zone, newCnode.InstanceType, cm.MemorySizeInfo)
 			newCnode.RAMMb = fmt.Sprintf("%f", ramMb)
 
 			if err != nil {
