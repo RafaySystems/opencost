@@ -4,7 +4,7 @@ Description: Rafay Cost Management Single Account Template
 
 Parameters:
   AthenaCURBucket:
-    Description: The bucket that athena results are written to
+    Description: The bucket into which the CUR is placed.
     Type: String
   SpotDataFeedBucketName:
     Description: Optional. The bucket that spot feed are written to
@@ -37,7 +37,7 @@ Resources:
     Condition: HasSpotFeedBucketName
     Properties:
       Users:
-        - !Ref RafaycostUser
+        - !Ref RafayCostUser
       Roles:
         - !Ref RafayCostRole
       PolicyName: 'rafay-spot-data-feed-access'
