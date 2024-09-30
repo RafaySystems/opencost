@@ -229,7 +229,6 @@ func (accessKey AWSAccessKey) CreateConfig(region string) (awsSDK.Config, error)
 			return cfg, fmt.Errorf("failed to initialize AWS SDK config for region %s: %s", region, err)
 		}
 	}
-
 	return cfg, nil
 }
 
@@ -405,6 +404,7 @@ func (aai *AwsAthenaInfo) IsEmpty() bool {
 
 // CreateConfig creates an AWS SDK V2 Config for the credentials that it contains
 func (aai *AwsAthenaInfo) CreateConfig() (awsSDK.Config, error) {
+
 	keyProvider := AWSAccessKey{AccessKeyID: aai.ServiceKeyName, SecretAccessKey: aai.ServiceKeySecret}
 	cfg, err := keyProvider.CreateConfig(aai.AthenaRegion)
 	if err != nil {
@@ -1955,7 +1955,7 @@ func (aws *AWS) QueryAthenaPaginated(ctx context.Context, query string, fn func(
 		return err
 	}
 	if awsAthenaInfo.AthenaDatabase == "" || awsAthenaInfo.AthenaTable == "" || awsAthenaInfo.AthenaRegion == "" ||
-		awsAthenaInfo.AthenaBucketName == "" || awsAthenaInfo.AccountID == "" {
+		awsAthenaInfo.AthenaBucketName == "" {
 		return fmt.Errorf("QueryAthenaPaginated: athena configuration incomplete")
 	}
 
