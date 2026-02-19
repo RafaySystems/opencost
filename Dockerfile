@@ -1,4 +1,4 @@
-FROM golang:latest as build-env
+FROM golang:latest AS build-env
 
 RUN mkdir /app
 WORKDIR /app
@@ -44,11 +44,14 @@ LABEL org.opencontainers.image.url=https://opencost.io
 RUN apk add --update --no-cache ca-certificates
 COPY --from=build-env /go/bin/app /go/bin/app
 ADD --chmod=644 ./THIRD_PARTY_LICENSES.txt /THIRD_PARTY_LICENSES.txt
+RUN mkdir -p /models
 ADD --chmod=644 ./configs/default.json /models/default.json
 ADD --chmod=644 ./configs/azure.json /models/azure.json
 ADD --chmod=644 ./configs/aws.json /models/aws.json
 ADD --chmod=644 ./configs/gcp.json /models/gcp.json
 ADD --chmod=644 ./configs/alibaba.json /models/alibaba.json
 ADD --chmod=644 ./configs/oracle.json /models/oracle.json
+# Own /models so non-root user can read config 
+RUN chown -R 1001:1001 /models
 USER 1001
 ENTRYPOINT ["/go/bin/app"]
