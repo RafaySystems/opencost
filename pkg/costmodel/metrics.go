@@ -473,7 +473,7 @@ func (cmme *CostModelMetricsEmitter) Start() bool {
 						log.Errorf("Error in price recording: %d errors occurred", len(ec.Errors()))
 					}
 				} else {
-					log.Errorf("Error in price recording: " + err.Error())
+					log.Errorf("Error in price recording: %s", err)
 				}
 
 				// zero the for loop so the time.Sleep will still work
