@@ -771,7 +771,7 @@ func (a *Accesses) PrometheusQueryRange(w http.ResponseWriter, r *http.Request, 
 
 	start, end, duration, err := toStartEndStep(qp)
 	if err != nil {
-		fmt.Fprintf(w, err.Error())
+		fmt.Fprint(w, err.Error())
 		return
 	}
 
@@ -845,7 +845,7 @@ func (a *Accesses) ThanosQueryRange(w http.ResponseWriter, r *http.Request, _ ht
 
 	start, end, duration, err := toStartEndStep(qp)
 	if err != nil {
-		fmt.Fprintf(w, err.Error())
+		fmt.Fprint(w, err.Error())
 		return
 	}
 
@@ -941,7 +941,7 @@ func (a *Accesses) GetAllPersistentVolumes(w http.ResponseWriter, r *http.Reques
 
 	body, err := json.Marshal(wrapAsObjectItems(pvList))
 	if err != nil {
-		fmt.Fprintf(w, "Error decoding persistent volumes: "+err.Error())
+		fmt.Fprintf(w, "Error decoding persistent volumes: %s", err)
 	} else {
 		w.Write(body)
 	}
@@ -974,7 +974,7 @@ func (a *Accesses) GetAllDeployments(w http.ResponseWriter, r *http.Request, ps 
 
 	body, err := json.Marshal(wrapAsObjectItems(deployments))
 	if err != nil {
-		fmt.Fprintf(w, "Error decoding deployment: "+err.Error())
+		fmt.Fprintf(w, "Error decoding deployment: %s", err)
 	} else {
 		w.Write(body)
 	}
@@ -988,7 +988,7 @@ func (a *Accesses) GetAllStorageClasses(w http.ResponseWriter, r *http.Request, 
 
 	body, err := json.Marshal(wrapAsObjectItems(scList))
 	if err != nil {
-		fmt.Fprintf(w, "Error decoding storageclasses: "+err.Error())
+		fmt.Fprintf(w, "Error decoding storageclasses: %s", err)
 	} else {
 		w.Write(body)
 	}
@@ -1020,7 +1020,7 @@ func (a *Accesses) GetAllStatefulSets(w http.ResponseWriter, r *http.Request, ps
 
 	body, err := json.Marshal(wrapAsObjectItems(statefulSets))
 	if err != nil {
-		fmt.Fprintf(w, "Error decoding deployment: "+err.Error())
+		fmt.Fprintf(w, "Error decoding deployment: %s", err)
 	} else {
 		w.Write(body)
 	}
@@ -1034,7 +1034,7 @@ func (a *Accesses) GetAllNodes(w http.ResponseWriter, r *http.Request, ps httpro
 
 	body, err := json.Marshal(wrapAsObjectItems(nodeList))
 	if err != nil {
-		fmt.Fprintf(w, "Error decoding nodes: "+err.Error())
+		fmt.Fprintf(w, "Error decoding nodes: %s", err)
 	} else {
 		w.Write(body)
 	}
@@ -1048,7 +1048,7 @@ func (a *Accesses) GetAllPods(w http.ResponseWriter, r *http.Request, ps httprou
 
 	body, err := json.Marshal(wrapAsObjectItems(podlist))
 	if err != nil {
-		fmt.Fprintf(w, "Error decoding pods: "+err.Error())
+		fmt.Fprintf(w, "Error decoding pods: %s", err)
 	} else {
 		w.Write(body)
 	}
@@ -1062,7 +1062,7 @@ func (a *Accesses) GetAllNamespaces(w http.ResponseWriter, r *http.Request, ps h
 
 	body, err := json.Marshal(wrapAsObjectItems(namespaces))
 	if err != nil {
-		fmt.Fprintf(w, "Error decoding deployment: "+err.Error())
+		fmt.Fprintf(w, "Error decoding deployment: %s", err)
 	} else {
 		w.Write(body)
 	}
@@ -1076,7 +1076,7 @@ func (a *Accesses) GetAllDaemonSets(w http.ResponseWriter, r *http.Request, ps h
 
 	body, err := json.Marshal(wrapAsObjectItems(daemonSets))
 	if err != nil {
-		fmt.Fprintf(w, "Error decoding daemon set: "+err.Error())
+		fmt.Fprintf(w, "Error decoding daemon set: %s", err)
 	} else {
 		w.Write(body)
 	}
@@ -1098,7 +1098,7 @@ func (a *Accesses) GetPod(w http.ResponseWriter, r *http.Request, ps httprouter.
 		if pod.Namespace == podNamespace && pod.Name == podName {
 			body, err := json.Marshal(pod)
 			if err != nil {
-				fmt.Fprintf(w, "Error decoding pod: "+err.Error())
+				fmt.Fprintf(w, "Error decoding pod: %s", err)
 			} else {
 				w.Write(body)
 			}
@@ -1117,12 +1117,12 @@ func (a *Accesses) PrometheusRecordingRules(w http.ResponseWriter, r *http.Reque
 
 	req, err := http.NewRequest(http.MethodGet, u.String(), nil)
 	if err != nil {
-		fmt.Fprintf(w, "Error creating Prometheus rule request: "+err.Error())
+		fmt.Fprintf(w, "Error creating Prometheus rule request: %s", err)
 	}
 
 	_, body, err := a.PrometheusClient.Do(r.Context(), req)
 	if err != nil {
-		fmt.Fprintf(w, "Error making Prometheus rule request: "+err.Error())
+		fmt.Fprintf(w, "Error making Prometheus rule request: %s", err)
 	} else {
 		w.Write(body)
 	}
@@ -1152,12 +1152,12 @@ func (a *Accesses) PrometheusTargets(w http.ResponseWriter, r *http.Request, _ h
 
 	req, err := http.NewRequest(http.MethodGet, u.String(), nil)
 	if err != nil {
-		fmt.Fprintf(w, "Error creating Prometheus rule request: "+err.Error())
+		fmt.Fprintf(w, "Error creating Prometheus rule request: %s", err)
 	}
 
 	_, body, err := a.PrometheusClient.Do(r.Context(), req)
 	if err != nil {
-		fmt.Fprintf(w, "Error making Prometheus rule request: "+err.Error())
+		fmt.Fprintf(w, "Error making Prometheus rule request: %s", err)
 	} else {
 		w.Write(body)
 	}
@@ -1178,7 +1178,7 @@ func (a *Accesses) GetOrphanedPods(w http.ResponseWriter, r *http.Request, ps ht
 
 	body, err := json.Marshal(lonePods)
 	if err != nil {
-		fmt.Fprintf(w, "Error decoding pod: "+err.Error())
+		fmt.Fprintf(w, "Error decoding pod: %s", err)
 	} else {
 		w.Write(body)
 	}
@@ -1309,7 +1309,7 @@ func (a *Accesses) GetPodLogs(w http.ResponseWriter, r *http.Request, ps httprou
 
 	sinceDuration, err := time.ParseDuration(since)
 	if err != nil {
-		fmt.Fprintf(w, "Invalid Duration String: "+err.Error())
+		fmt.Fprintf(w, "Invalid Duration String: %s", err)
 		return
 	}
 
@@ -1325,7 +1325,7 @@ func (a *Accesses) GetPodLogs(w http.ResponseWriter, r *http.Request, ps httprou
 	if pod != "" {
 		pd, err := a.KubeClientSet.CoreV1().Pods(ns).Get(r.Context(), pod, metav1.GetOptions{})
 		if err != nil {
-			fmt.Fprintf(w, "Error Finding Pod: "+err.Error())
+			fmt.Fprintf(w, "Error Finding Pod: %s", err)
 			return
 		}
 
@@ -1338,14 +1338,14 @@ func (a *Accesses) GetPodLogs(w http.ResponseWriter, r *http.Request, ps httprou
 				}
 			}
 			if !foundContainer {
-				fmt.Fprintf(w, "Could not find container: "+container)
+				fmt.Fprintf(w, "Could not find container: %s", container)
 				return
 			}
 		}
 
 		logs, err := logsFor(a.KubeClientSet, ns, pod, container, sinceDuration, r.Context())
 		if err != nil {
-			fmt.Fprintf(w, "Error Getting Logs: "+err.Error())
+			fmt.Fprintf(w, "Error Getting Logs: %s", err)
 			return
 		}
 
@@ -1358,7 +1358,7 @@ func (a *Accesses) GetPodLogs(w http.ResponseWriter, r *http.Request, ps httprou
 	if selector != "" {
 		pods, err := a.KubeClientSet.CoreV1().Pods(ns).List(r.Context(), metav1.ListOptions{LabelSelector: selector})
 		if err != nil {
-			fmt.Fprintf(w, "Error Finding Pod: "+err.Error())
+			fmt.Fprintf(w, "Error Finding Pod: %s", err)
 			return
 		}
 
@@ -1386,7 +1386,7 @@ func (a *Accesses) AddServiceKey(w http.ResponseWriter, r *http.Request, ps http
 	k := []byte(key)
 	err := os.WriteFile(path.Join(env.GetConfigPathWithDefault(env.DefaultConfigMountPath), "key.json"), k, 0644)
 	if err != nil {
-		fmt.Fprintf(w, "Error writing service key: "+err.Error())
+		fmt.Fprintf(w, "Error writing service key: %s", err)
 	}
 
 	w.WriteHeader(http.StatusOK)
@@ -1420,17 +1420,17 @@ func (a *Accesses) Status(w http.ResponseWriter, r *http.Request, _ httprouter.P
 	api := prometheusAPI.NewAPI(a.PrometheusClient)
 	result, err := api.Buildinfo(r.Context())
 	if err != nil {
-		fmt.Fprintf(w, "Using Prometheus at "+promServer+". Error: "+err.Error())
+		fmt.Fprintf(w, "Using Prometheus at %s. Error: %s", promServer, err)
 	} else {
 
-		fmt.Fprintf(w, "Using Prometheus at "+promServer+". Version: "+result.Version)
+		fmt.Fprintf(w, "Using Prometheus at %s. Version: %s", promServer, result.Version)
 	}
 }
 
 // captures the panic event in sentry
 func capturePanicEvent(err string, stack string) {
 	msg := fmt.Sprintf("Panic: %s\nStackTrace: %s\n", err, stack)
-	log.Infof(msg)
+	log.Info(msg)
 	sentry.CurrentHub().CaptureEvent(&sentry.Event{
 		Level:   sentry.LevelError,
 		Message: msg,
@@ -1521,7 +1521,7 @@ func Initialize(router *httprouter.Router, additionalConfigWatchers ...*watcher.
 			log.Errorf("Prometheus at %s is not running. Troubleshooting help available at: %s", address, prom.PrometheusTroubleshootingURL)
 		}
 	} else {
-		log.Infof("Success: retrieved the 'up' query against prometheus at: " + address)
+		log.Infof("Success: retrieved the 'up' query against prometheus at: %s", address)
 	}
 
 	api := prometheusAPI.NewAPI(promCli)
@@ -1633,7 +1633,7 @@ func Initialize(router *httprouter.Router, additionalConfigWatchers ...*watcher.
 				log.Warnf("Failed to query Thanos at %s. Error: %s.", thanosAddress, err.Error())
 				thanosClient = thanosCli
 			} else {
-				log.Infof("Success: retrieved the 'up' query against Thanos at: " + thanosAddress)
+				log.Infof("Success: retrieved the 'up' query against Thanos at: %s", thanosAddress)
 
 				thanosClient = thanosCli
 			}
@@ -1720,13 +1720,13 @@ func Initialize(router *httprouter.Router, additionalConfigWatchers ...*watcher.
 	downloadData := func() (interface{}, error) {
 		err = a.CloudProvider.DownloadPricingData()
 		if err != nil {
-			log.Infof("Failed to download pricing data: " + err.Error())
+			log.Infof("Failed to download pricing data: %s", err)
 		}
 		return nil, err
 	}
 	_, err = retry.Retry(context.Background(), downloadData, uint(DownloadRetries), DownloadRetryDelay)
 	if err != nil {
-		log.Infof("Opencost unable to fetch pricing: " + err.Error())
+		log.Infof("Opencost unable to fetch pricing: %s", err)
 		panic(err.Error())
 	}
 

@@ -317,7 +317,7 @@ func (cm *CostModel) ComputeCostData(cli prometheusClient.Client, cp costAnalyze
 
 	nodes, err := cm.GetNodeCost(cp)
 	if err != nil {
-		log.Warnf("GetNodeCost: no node cost model available: " + err.Error())
+		log.Warnf("GetNodeCost: no node cost model available: %s", err)
 		return nil, err
 	}
 
@@ -1579,7 +1579,7 @@ func getPodStatefulsets(cache clustercache.ClusterCache, podList []*v1.Pod, clus
 		}
 		s, err := metav1.LabelSelectorAsSelector(ss.Spec.Selector)
 		if err != nil {
-			log.Errorf("Error doing deployment label conversion: " + err.Error())
+			log.Errorf("Error doing deployment label conversion: %s", err)
 		}
 		for _, pod := range podList {
 			labelSet := labels.Set(pod.GetObjectMeta().GetLabels())
@@ -1610,7 +1610,7 @@ func getPodDeployments(cache clustercache.ClusterCache, podList []*v1.Pod, clust
 		}
 		s, err := metav1.LabelSelectorAsSelector(deployment.Spec.Selector)
 		if err != nil {
-			log.Errorf("Error doing deployment label conversion: " + err.Error())
+			log.Errorf("Error doing deployment label conversion: %s", err)
 		}
 		for _, pod := range podList {
 			labelSet := labels.Set(pod.GetObjectMeta().GetLabels())

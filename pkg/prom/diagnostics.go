@@ -206,7 +206,7 @@ func GetPrometheusMetrics(client prometheus.Client, offset string) PrometheusDia
 
 		// log the errror, append to results anyways, and continue
 		if err != nil {
-			log.Errorf(err.Error())
+			log.Errorf("%s", err.Error())
 		}
 		result = append(result, pd)
 	}
@@ -226,7 +226,7 @@ func GetPrometheusMetricsByID(ids []string, client prometheus.Client, offset str
 
 			// log the errror, append to results anyways, and continue
 			if err != nil {
-				log.Errorf(err.Error())
+				log.Errorf("%s", err.Error())
 			}
 			result = append(result, pd)
 		} else {

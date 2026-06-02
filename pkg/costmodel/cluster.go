@@ -1341,7 +1341,7 @@ func ClusterCostsOverTime(cli prometheus.Client, provider models.Provider, start
 
 		resultNodes, warnings, err := ctx.QueryRangeSync(qNodes, start, end, window)
 		for _, warning := range warnings {
-			log.Warnf(warning)
+			log.Warnf("%s", warning)
 		}
 		if err != nil {
 			return nil, err
