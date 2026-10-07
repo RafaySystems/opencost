@@ -41,7 +41,9 @@ LABEL org.opencontainers.image.source=https://github.com/opencost/opencost
 LABEL org.opencontainers.image.title=kubecost-cost-model
 LABEL org.opencontainers.image.url=https://opencost.io
 
-RUN apk add --update --no-cache ca-certificates
+# apk upgrade picks up alpine security rebuilds that alpine:latest has not rolled
+# yet (e.g. zlib 1.3.2-r1 for CVE-2026-85091); a plain rebuild alone does not.
+RUN apk upgrade --no-cache && apk add --update --no-cache ca-certificates
 COPY --from=build-env /go/bin/app /go/bin/app
 ADD --chmod=644 ./THIRD_PARTY_LICENSES.txt /THIRD_PARTY_LICENSES.txt
 RUN mkdir -p /models
